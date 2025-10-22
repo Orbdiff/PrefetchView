@@ -1,9 +1,17 @@
-﻿#include "imgui.h"
+﻿#define NOMINMAX
+#define _CRT_SECURE_NO_WARNINGS
+#define _SILENCE_CXX17_CODECVT_HEADER_DEPRECATION_WARNING
+
+#include "imgui.h"
 #include "imgui_impl_win32.h"
 #include "imgui_impl_dx11.h"
 
+#include "wil/resource.h"
+
 #include "prefetch/_prefetch_parser.h"
-#include "_font.h"
+#include "ui_help/_font.h"
+#include "ui_help/_time_utils.h"
+#include "ui_help/_usn_parser.h"
 
 #include <d3d11.h>
 #include <tchar.h>
@@ -109,32 +117,32 @@ bool LoadFileIconDX11(ID3D11Device* device, const std::wstring& filePath, IconDa
     if (!device || filePath.empty())
         return false;
 
-    SHFILEINFO shfi = { 0 };
-    DWORD_PTR res = SHGetFileInfoW(filePath.c_str(), FILE_ATTRIBUTE_NORMAL, &shfi, sizeof(SHFILEINFO), SHGFI_ICON | SHGFI_LARGEICON);
-    if (res == 0 || !shfi.hIcon)
+    SHFILEINFO shfi{};
+    if (!SHGetFileInfoW(filePath.c_str(), FILE_ATTRIBUTE_NORMAL, &shfi, sizeof(shfi),
+        SHGFI_ICON | SHGFI_LARGEICON) || !shfi.hIcon)
         return false;
 
-    ICONINFO iconInfo;
-    if (!GetIconInfo(shfi.hIcon, &iconInfo))
-    {
-        DestroyIcon(shfi.hIcon);
+    wil::unique_hicon hIcon{ shfi.hIcon };
+
+    ICONINFO iconInfo{};
+    if (!GetIconInfo(hIcon.get(), &iconInfo))
         return false;
-    }
 
-    BITMAP bm;
-    if (!GetObject(iconInfo.hbmColor, sizeof(BITMAP), &bm))
-    {
-        DestroyIcon(shfi.hIcon);
-        DeleteObject(iconInfo.hbmColor);
-        DeleteObject(iconInfo.hbmMask);
+    wil::unique_hbitmap hbmColor{ iconInfo.hbmColor };
+    wil::unique_hbitmap hbmMask{ iconInfo.hbmMask };
+
+    BITMAP bm{};
+    if (!GetObject(hbmColor.get(), sizeof(BITMAP), &bm))
         return false;
-    }
 
-    int width = bm.bmWidth;
-    int height = bm.bmHeight;
+    const int width = bm.bmWidth;
+    const int height = bm.bmHeight;
 
-    HDC hdc = CreateCompatibleDC(NULL);
-    BITMAPINFO bmi = {};
+    wil::unique_hdc hdc{ CreateCompatibleDC(nullptr) };
+    if (!hdc)
+        return false;
+
+    BITMAPINFO bmi{};
     bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
     bmi.bmiHeader.biWidth = width;
     bmi.bmiHeader.biHeight = -height;
@@ -143,9 +151,10 @@ bool LoadFileIconDX11(ID3D11Device* device, const std::wstring& filePath, IconDa
     bmi.bmiHeader.biCompression = BI_RGB;
 
     std::vector<BYTE> pixels(width * height * 4);
-    GetDIBits(hdc, iconInfo.hbmColor, 0, height, pixels.data(), &bmi, DIB_RGB_COLORS);
+    if (!GetDIBits(hdc.get(), hbmColor.get(), 0, height, pixels.data(), &bmi, DIB_RGB_COLORS))
+        return false;
 
-    D3D11_TEXTURE2D_DESC desc = {};
+    D3D11_TEXTURE2D_DESC desc{};
     desc.Width = width;
     desc.Height = height;
     desc.MipLevels = 1;
@@ -155,45 +164,22 @@ bool LoadFileIconDX11(ID3D11Device* device, const std::wstring& filePath, IconDa
     desc.Usage = D3D11_USAGE_DEFAULT;
     desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
 
-    D3D11_SUBRESOURCE_DATA initData = {};
+    D3D11_SUBRESOURCE_DATA initData{};
     initData.pSysMem = pixels.data();
     initData.SysMemPitch = width * 4;
 
-    Microsoft::WRL::ComPtr<ID3D11Texture2D> tex;
-    HRESULT hr = device->CreateTexture2D(&desc, &initData, &tex);
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> texture;
+    HRESULT hr = device->CreateTexture2D(&desc, &initData, &texture);
     if (FAILED(hr))
-    {
-        DeleteDC(hdc);
-        DestroyIcon(shfi.hIcon);
-        DeleteObject(iconInfo.hbmColor);
-        DeleteObject(iconInfo.hbmMask);
         return false;
-    }
 
-    D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
-    srvDesc.Format = desc.Format;
-    srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
-    srvDesc.Texture2D.MipLevels = 1;
-
-    hr = device->CreateShaderResourceView(tex.Get(), &srvDesc, outIcon.TextureView.GetAddressOf());
+    hr = device->CreateShaderResourceView(texture.Get(), nullptr, &outIcon.TextureView);
     if (FAILED(hr))
-    {
-        DeleteDC(hdc);
-        DestroyIcon(shfi.hIcon);
-        DeleteObject(iconInfo.hbmColor);
-        DeleteObject(iconInfo.hbmMask);
         return false;
-    }
 
     outIcon.Width = width;
     outIcon.Height = height;
     outIcon.IsLoaded = true;
-
-    DeleteDC(hdc);
-    DestroyIcon(shfi.hIcon);
-    DeleteObject(iconInfo.hbmColor);
-    DeleteObject(iconInfo.hbmMask);
-
     return true;
 }
 
@@ -223,57 +209,6 @@ void CopyToClipboard(const std::wstring& text)
 
         CloseClipboard();
     }
-}
-
-time_t FileTimeToTimeT(const FILETIME& ft)
-{
-    ULARGE_INTEGER ull;
-    ull.LowPart = ft.dwLowDateTime;
-    ull.HighPart = ft.dwHighDateTime;
-    return static_cast<time_t>((ull.QuadPart - 116444736000000000ULL) / 10000000ULL);
-}
-
-time_t GetCurrentUserLogonTime()
-{
-    wchar_t username[UNLEN + 1];
-    DWORD size = UNLEN + 1;
-    if (!GetUserNameW(username, &size))
-        return 0;
-
-    ULONG count = 0;
-    PLUID sessions = nullptr;
-    NTSTATUS status = LsaEnumerateLogonSessions(&count, &sessions);
-    if (status != 0 || sessions == nullptr)
-        return 0;
-
-    time_t result = 0;
-
-    for (ULONG i = 0; i < count; i++)
-    {
-        PSECURITY_LOGON_SESSION_DATA pData = nullptr;
-        NTSTATUS statusData = LsaGetLogonSessionData(&sessions[i], &pData);
-        if (statusData == 0 && pData)
-        {
-            if (pData->UserName.Buffer &&
-                pData->LogonType == Interactive &&
-                _wcsicmp(pData->UserName.Buffer, username) == 0)
-            {
-                FILETIME ft;
-                ft.dwLowDateTime = static_cast<DWORD>(pData->LogonTime.LowPart);
-                ft.dwHighDateTime = static_cast<DWORD>(pData->LogonTime.HighPart);
-                result = FileTimeToTimeT(ft);
-
-                LsaFreeReturnBuffer(pData);
-                break;
-            }
-            LsaFreeReturnBuffer(pData);
-        }
-    }
-
-    if (sessions)
-        LsaFreeReturnBuffer(sessions);
-
-    return result;
 }
 
 std::string FileTimeToString(const FILETIME& ft)
@@ -487,7 +422,10 @@ int WINAPI WinMain
         }
         else if (!prefetchData.empty())
         {
-            ImGui::PushStyleVar(ImGuiStyleVar_Alpha, fadeIn);
+            static float fadeAlpha = 0.0f;
+            static float fadeSpeed = 3.0f;
+            static bool lastShowOnlyUnsigned = false;
+            static bool lastShowAfterLogon = false;
 
             static char searchBuffer[128] = "";
             static bool showOnlyUnsigned = false;
@@ -498,9 +436,127 @@ int WINAPI WinMain
             ImGui::PopItemWidth();
 
             ImGui::SameLine(0, 20);
-            ImGui::Checkbox("Only Unsigned", &showOnlyUnsigned);
+            bool checkboxChanged = false;
+            checkboxChanged |= ImGui::Checkbox("Only Unsigned", &showOnlyUnsigned);
             ImGui::SameLine(0, 20);
-            ImGui::Checkbox("Show in Instance", &showAfterLogon);
+            checkboxChanged |= ImGui::Checkbox("Show in Instance", &showAfterLogon);
+            ImGui::SameLine();
+
+            float buttonWidth = 160.0f;
+            float windowRight = ImGui::GetWindowContentRegionMax().x + ImGui::GetWindowPos().x;
+            ImGui::SetCursorPosX(windowRight - buttonWidth - ImGui::GetStyle().ItemSpacing.x);
+
+            static bool showUSNPopup = false;
+            static bool isReadingUSN = false;
+            static std::vector<USNJournalReader::USNEvent> usnResults;
+            static float popupAlpha = 0.0f;
+
+            if (ImGui::Button("Read USN Journal", ImVec2(buttonWidth, 0)))
+            {
+                showUSNPopup = true;
+                isReadingUSN = true;
+                popupAlpha = 0.0f;
+                usnResults.clear();
+
+                std::thread([]() {
+                    wchar_t windowsPath[MAX_PATH];
+                    GetWindowsDirectoryW(windowsPath, MAX_PATH);
+
+                    wchar_t driveLetter[4] = { 0 };
+                    wcsncpy_s(driveLetter, windowsPath, 2);
+                    USNJournalReader reader(driveLetter);
+                    auto results = reader.Run();
+
+                    ImGui::GetIO().UserData = new std::vector<USNJournalReader::USNEvent>(std::move(results));
+                    }).detach();
+            }
+
+            if (showUSNPopup)
+                ImGui::OpenPopup("USN Journal Results");
+
+            if (popupAlpha < 1.0f)
+                popupAlpha += ImGui::GetIO().DeltaTime * 4.0f;
+            popupAlpha = std::min(popupAlpha, 1.0f);
+            ImGui::PushStyleVar(ImGuiStyleVar_Alpha, popupAlpha);
+
+            ImVec2 popupSize(900, 500);
+            if (ImGui::BeginPopupModal("USN Journal Results", &showUSNPopup,
+                ImGuiWindowFlags_NoCollapse))
+            {
+                ImGui::SetWindowSize(popupSize, ImGuiCond_Once);
+
+                if (isReadingUSN)
+                {
+                    auto ptr = static_cast<std::vector<USNJournalReader::USNEvent>*>(ImGui::GetIO().UserData);
+                    if (ptr)
+                    {
+                        usnResults = std::move(*ptr);
+                        delete ptr;
+                        ImGui::GetIO().UserData = nullptr;
+                        isReadingUSN = false;
+                    }
+                }
+
+                ImVec2 winSize = ImGui::GetWindowSize();
+
+                if (isReadingUSN)
+                {
+                    ImGui::Dummy(ImVec2(0, winSize.y * 0.35f));
+                    ImGui::SetCursorPosX((winSize.x - ImGui::CalcTextSize("Reading USN Journal...").x) * 0.5f);
+                    ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "Reading USN Journal...");
+                }
+                else if (usnResults.empty())
+                {
+                    ImGui::Dummy(ImVec2(0, winSize.y * 0.35f));
+                    ImGui::SetCursorPosX((winSize.x - ImGui::CalcTextSize("No .pf deleted or renamed entries found after logon.").x) * 0.5f);
+                    ImGui::TextColored(ImVec4(0.8f, 0.5f, 0.5f, 1.0f), "No .pf deleted or renamed entries found after logon.");
+                }
+                else
+                {
+                    if (ImGui::BeginTable("USNTable", 4,
+                        ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable,
+                        ImVec2(-FLT_MIN, -FLT_MIN)))
+                    {
+                        ImGui::TableSetupScrollFreeze(0, 1);
+                        ImGui::TableSetupColumn("Old Name", ImGuiTableColumnFlags_WidthStretch);
+                        ImGui::TableSetupColumn("New Name", ImGuiTableColumnFlags_WidthStretch);
+                        ImGui::TableSetupColumn("Reason", ImGuiTableColumnFlags_WidthFixed, 120.0f);
+                        ImGui::TableSetupColumn("Timestamp", ImGuiTableColumnFlags_WidthFixed, 180.0f);
+                        ImGui::TableHeadersRow();
+
+                        for (auto it = usnResults.rbegin(); it != usnResults.rend(); ++it)
+                        {
+                            const auto& e = *it;
+                            ImGui::TableNextRow();
+                            ImGui::TableSetColumnIndex(0);
+                            ImGui::TextUnformatted(e.filenameOld.c_str());
+                            ImGui::TableSetColumnIndex(1);
+                            ImGui::TextUnformatted(e.filenameNew.empty() ? "-" : e.filenameNew.c_str());
+                            ImGui::TableSetColumnIndex(2);
+                            ImGui::TextUnformatted(e.action.c_str());
+                            ImGui::TableSetColumnIndex(3);
+
+                            std::tm* tm = std::localtime(&e.timestamp);
+                            char timeBuf[32];
+                            std::strftime(timeBuf, sizeof(timeBuf), "%Y-%m-%d %H:%M:%S", tm);
+                            ImGui::TextUnformatted(timeBuf);
+                        }
+
+                        ImGui::EndTable();
+                    }
+                }
+
+                ImGui::EndPopup();
+            }
+
+            ImGui::PopStyleVar();
+
+            if (checkboxChanged)
+            {
+                fadeAlpha = 0.0f;
+                lastShowOnlyUnsigned = showOnlyUnsigned;
+                lastShowAfterLogon = showAfterLogon;
+            }
 
             ImGui::Separator();
 
@@ -540,6 +596,10 @@ int WINAPI WinMain
                 if (matchesSearch && matchesUnsigned && matchesLogon)
                     filteredData.push_back(result);
             }
+
+            fadeAlpha += io.DeltaTime * fadeSpeed;
+            if (fadeAlpha > 1.0f) fadeAlpha = 1.0f;
+            ImGui::PushStyleVar(ImGuiStyleVar_Alpha, fadeAlpha);
 
             static std::vector<PrefetchResult> sortedData;
             sortedData = filteredData;
