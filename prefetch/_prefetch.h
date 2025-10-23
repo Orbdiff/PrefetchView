@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "_prefetch_utils.h"
 #include "../signature/_signature_parser.h"
@@ -59,7 +59,8 @@ public:
 
     std::optional<PrefetchInfo> ExtractInfo(const std::string& filepath) const noexcept
     {
-        if (!IsValid()) return std::nullopt;
+        if (!IsValid())
+            return std::nullopt;
 
         PrefetchInfo info;
         info.filePath = filepath;
@@ -69,7 +70,8 @@ public:
         info.fileNames = ExtractFileNames();
         info.lastExecutionTimes = ExtractExecutionTimes();
 
-        switch (info.version) {
+        switch (info.version)
+        {
         case 17: info.runCount = ReadLE<int>(0x90).value_or(0); break;
         case 23: info.runCount = ReadLE<int>(0x98).value_or(0); break;
         case 26:
@@ -77,7 +79,7 @@ public:
         case 31: info.runCount = ReadLE<int>(0xD0).value_or(0); break;
         default: info.runCount = 0; break;
         }
-    
+
         std::wstring pfWPath(filepath.begin(), filepath.end());
         std::wstring exeName = ExtractExeNameFromPfFilename(pfWPath);
         info.mainExecutablePath = FindExecutablePath(exeName, info.fileNames);
@@ -88,9 +90,8 @@ public:
             info.signatureStatus = SignatureStatus::NotFound;
 
         info.fileSignatures.reserve(info.fileNames.size());
-        for (const auto& path : info.fileNames) {
+        for (const auto& path : info.fileNames)
             info.fileSignatures.push_back(GetSignatureStatus(path));
-        }
 
         return info;
     }

@@ -8,6 +8,39 @@
 #include <ctime>
 #include <lmcons.h>
 
+std::string FormatUptime(time_t startTime)
+{
+    time_t now = time(nullptr);
+    double seconds = difftime(now, startTime);
+
+    int days = static_cast<int>(seconds / 86400);
+    int hours = static_cast<int>((seconds - days * 86400) / 3600);
+    int minutes = static_cast<int>((seconds - days * 86400 - hours * 3600) / 60);
+
+    std::string result;
+    if (days > 0) result += std::to_string(days) + (days > 1 ? " days " : " day ");
+    if (hours > 0) result += std::to_string(hours) + (hours > 1 ? " hours " : " hour ");
+    if (minutes > 0) result += std::to_string(minutes) + (minutes > 1 ? " minutes " : " minute ");
+    if (days == 0 && hours == 0 && minutes == 0) result += "a few seconds ";
+
+    char buf[64];
+    struct tm localTime {};
+    localtime_s(&localTime, &startTime);
+    strftime(buf, sizeof(buf), "(%I:%M:%S %p %m/%d/%Y)", &localTime);
+    result += buf;
+
+    return result;
+}
+
+std::string FormatTime(time_t t)
+{
+    char buf[64];
+    struct tm localTime {};
+    localtime_s(&localTime, &t);
+    strftime(buf, sizeof(buf), "%I:%M:%S %p %m/%d/%Y", &localTime);
+    return std::string(buf);
+}
+
 time_t FileTimeToTimeT(const FILETIME& ft)
 {
     ULARGE_INTEGER ull;

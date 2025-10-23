@@ -12,6 +12,9 @@
 #include "ui_help/_font.h"
 #include "ui_help/_time_utils.h"
 #include "ui_help/_usn_parser.h"
+#include "ui_help/_service_status.h"
+#include "privilege/_privilege.hpp"
+#include "privilege/_priority.hh"
 
 #include <d3d11.h>
 #include <tchar.h>
@@ -247,6 +250,8 @@ int WINAPI WinMain
     _In_ LPSTR     lpCmdLine,
     _In_ int       nCmdShow
 ) {
+    ElevateProcessPriority();
+
     WNDCLASSEX wc = { sizeof(WNDCLASSEX), CS_CLASSDC, WndProc, 0L, 0L, GetModuleHandle(NULL),
                       NULL, NULL, NULL, NULL, _T("PrefetchView++"), NULL };
     RegisterClassEx(&wc);
@@ -275,7 +280,7 @@ int WINAPI WinMain
     ImFont* font = io.Fonts->AddFontFromMemoryTTF(
         (void*)Custom,
         static_cast<int>(Custom_len),
-        15.5f,
+        16.0f,
         &CustomFont
     );
 
@@ -345,6 +350,10 @@ int WINAPI WinMain
     ImGui_ImplWin32_Init(hwnd);
     ImGui_ImplDX11_Init(g_pd3dDevice, g_pd3dDeviceContext);
 
+    if (!EnableDebugPrivilege()) {
+        MessageBoxA(nullptr, "Failed to enable SeDebugPrivilege. Please run PrefetchView++ with perms Administrator.", "Warning", MB_OK);
+    }
+
     std::vector<PrefetchResult> prefetchData;
     bool isLoading = true;
     bool analysisDone = false;
@@ -397,12 +406,14 @@ int WINAPI WinMain
 
             ImDrawList* draw_list = ImGui::GetWindowDrawList();
             float baseRadius = 30.0f;
-            float pulse = 0.8f + 0.2f * sinf(ImGui::GetTime() * 3.0f);
+
+            float t = static_cast<float>(ImGui::GetTime());
+            float pulse = 0.8f + 0.2f * sinf(t * 3.0f);
             float radius = baseRadius * pulse;
 
             for (int i = 0; i < 3; ++i)
             {
-                float angle = ImGui::GetTime() * 3.0f + i * 1.0f;
+                float angle = t * 3.0f + i * 1.0f;
                 float start = angle;
                 float end = angle + 1.2f;
                 draw_list->PathArcTo(center, radius - i * 6.0f, start, end, 32);
@@ -413,7 +424,7 @@ int WINAPI WinMain
             ImVec2 textSize = ImGui::CalcTextSize(loadingText);
             ImVec2 textPos = ImVec2(center.x - textSize.x * 0.5f, center.y + baseRadius + 15.0f);
 
-            float textPulse = 0.85f + 0.15f * sinf(ImGui::GetTime() * 2.0f);
+            float textPulse = 0.85f + 0.15f * sinf(t * 2.0f);
             int alpha = static_cast<int>(fadeIn * textPulse * 255.0f);
             if (alpha < 220) alpha = 220;
 
@@ -444,46 +455,119 @@ int WINAPI WinMain
 
             float buttonWidth = 160.0f;
             float windowRight = ImGui::GetWindowContentRegionMax().x + ImGui::GetWindowPos().x;
-            ImGui::SetCursorPosX(windowRight - buttonWidth - ImGui::GetStyle().ItemSpacing.x);
+
+            static bool showSysMainPopup = false;
+            static bool isReadingSysMain = false;
+            static std::vector<ServiceInfo> sysmainResults;
+            static float sysmainPopupAlpha = 0.0f;
+
+            ImGui::SetCursorPosX(windowRight - 2 * buttonWidth - ImGui::GetStyle().ItemSpacing.x * 2);
+            if (ImGui::Button("Read SysMain", ImVec2(buttonWidth, 0)))
+            {
+                showSysMainPopup = true;
+                isReadingSysMain = true;
+                sysmainPopupAlpha = 0.0f;
+                sysmainResults.clear();
+
+                std::thread([]() {
+                    auto results = GetSysMainInfo();
+                    ImGui::GetIO().UserData = new std::vector<ServiceInfo>(std::move(results));
+                    }).detach();
+            }
+
+            ImGui::SameLine();
 
             static bool showUSNPopup = false;
             static bool isReadingUSN = false;
             static std::vector<USNJournalReader::USNEvent> usnResults;
-            static float popupAlpha = 0.0f;
+            static float usnPopupAlpha = 0.0f;
 
+            ImGui::SetCursorPosX(windowRight - buttonWidth);
             if (ImGui::Button("Read USN Journal", ImVec2(buttonWidth, 0)))
             {
                 showUSNPopup = true;
                 isReadingUSN = true;
-                popupAlpha = 0.0f;
+                usnPopupAlpha = 0.0f;
                 usnResults.clear();
 
                 std::thread([]() {
-                    wchar_t windowsPath[MAX_PATH];
-                    GetWindowsDirectoryW(windowsPath, MAX_PATH);
+                    wchar_t windowsPath[MAX_PATH] = {};
+                    if (GetWindowsDirectoryW(windowsPath, MAX_PATH) != 0)
+                    {
+                        wchar_t driveLetter[3] = { windowsPath[0], L':', L'\0' };
 
-                    wchar_t driveLetter[4] = { 0 };
-                    wcsncpy_s(driveLetter, windowsPath, 2);
-                    USNJournalReader reader(driveLetter);
-                    auto results = reader.Run();
+                        USNJournalReader reader(driveLetter);
+                        auto results = reader.Run();
 
-                    ImGui::GetIO().UserData = new std::vector<USNJournalReader::USNEvent>(std::move(results));
+                        ImGui::GetIO().UserData = new std::vector<USNJournalReader::USNEvent>(std::move(results));
+                    }
                     }).detach();
             }
 
-            if (showUSNPopup)
-                ImGui::OpenPopup("USN Journal Results");
+            if (showSysMainPopup) ImGui::OpenPopup("SysMain Info");
+            if (showUSNPopup) ImGui::OpenPopup("USN Journal Results");
 
-            if (popupAlpha < 1.0f)
-                popupAlpha += ImGui::GetIO().DeltaTime * 4.0f;
-            popupAlpha = std::min(popupAlpha, 1.0f);
-            ImGui::PushStyleVar(ImGuiStyleVar_Alpha, popupAlpha);
+            if (sysmainPopupAlpha < 1.0f) sysmainPopupAlpha += ImGui::GetIO().DeltaTime * 4.0f;
+            sysmainPopupAlpha = std::min(sysmainPopupAlpha, 1.0f);
+            if (usnPopupAlpha < 1.0f) usnPopupAlpha += ImGui::GetIO().DeltaTime * 4.0f;
+            usnPopupAlpha = std::min(usnPopupAlpha, 1.0f);
 
-            ImVec2 popupSize(900, 500);
-            if (ImGui::BeginPopupModal("USN Journal Results", &showUSNPopup,
-                ImGuiWindowFlags_NoCollapse))
+            ImGui::PushStyleVar(ImGuiStyleVar_Alpha, sysmainPopupAlpha);
+            ImVec2 popupSizeSysMain(400, 200);
+            if (ImGui::BeginPopupModal("SysMain Info", &showSysMainPopup, ImGuiWindowFlags_NoCollapse))
             {
-                ImGui::SetWindowSize(popupSize, ImGuiCond_Once);
+                ImGui::SetWindowSize(popupSizeSysMain, ImGuiCond_Once);
+
+                if (isReadingSysMain)
+                {
+                    auto ptr = static_cast<std::vector<ServiceInfo>*>(ImGui::GetIO().UserData);
+                    if (ptr)
+                    {
+                        sysmainResults = std::move(*ptr);
+                        delete ptr;
+                        ImGui::GetIO().UserData = nullptr;
+                        isReadingSysMain = false;
+                    }
+                }
+
+                ImVec2 winSize = ImGui::GetWindowSize();
+
+                if (isReadingSysMain)
+                {
+                    ImGui::Dummy(ImVec2(0, winSize.y * 0.35f));
+                    ImGui::SetCursorPosX((winSize.x - ImGui::CalcTextSize("Reading SysMain...").x) * 0.5f);
+                    ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "Reading SysMain...");
+                }
+                else if (sysmainResults.empty())
+                {
+                    ImGui::Dummy(ImVec2(0, winSize.y * 0.35f));
+                    ImGui::SetCursorPosX((winSize.x - ImGui::CalcTextSize("SysMain not found or stopped.").x) * 0.5f);
+                    ImGui::TextColored(ImVec4(0.8f, 0.5f, 0.5f, 1.0f), "SysMain not found or stopped.");
+                }
+                else
+                {
+                    const auto& svc = sysmainResults[0];
+
+                    ImGui::Text("PID: %u", svc.pid);
+                    ImGui::Text("Estado: %s", svc.status.c_str());
+                    if (svc.status == "Running")
+                    {
+                        ImGui::Text("Uptime: %s", svc.uptime.c_str());
+                        ImGui::Text("Logon Time: %s", svc.logonTimeStr.c_str());
+                        if (svc.delayedStart)
+                            ImGui::TextColored(ImVec4(1, 0, 0, 1), "[!] Sysmain started after logon-time...");
+                    }
+                }
+
+                ImGui::EndPopup();
+            }
+            ImGui::PopStyleVar();
+
+            ImGui::PushStyleVar(ImGuiStyleVar_Alpha, usnPopupAlpha);
+            ImVec2 popupSizeUSN(900, 500);
+            if (ImGui::BeginPopupModal("USN Journal Results", &showUSNPopup, ImGuiWindowFlags_NoCollapse))
+            {
+                ImGui::SetWindowSize(popupSizeUSN, ImGuiCond_Once);
 
                 if (isReadingUSN)
                 {
@@ -548,8 +632,8 @@ int WINAPI WinMain
 
                 ImGui::EndPopup();
             }
-
             ImGui::PopStyleVar();
+
 
             if (checkboxChanged)
             {
@@ -575,8 +659,15 @@ int WINAPI WinMain
                 std::transform(pathLower.begin(), pathLower.end(), pathLower.begin(), ::tolower);
 
                 SignatureStatus sig = GetSignatureStatus(info.mainExecutablePath);
-                std::string sigText = (sig == SignatureStatus::Signed ? "signed" :
-                    sig == SignatureStatus::Unsigned ? "unsigned" : "not found");
+
+                std::string sigText;
+                switch (sig)
+                {
+                case SignatureStatus::Signed:   sigText = "signed"; break;
+                case SignatureStatus::Unsigned: sigText = "unsigned"; break;
+                case SignatureStatus::Cheat:    sigText = "cheat"; break;
+                default:                        sigText = "not found"; break;
+                }
 
                 bool matchesSearch =
                     searchLower.empty() ||
@@ -584,7 +675,7 @@ int WINAPI WinMain
                     pathLower.find(searchLower) != std::string::npos ||
                     sigText.find(searchLower) != std::string::npos;
 
-                bool matchesUnsigned = !showOnlyUnsigned || sig == SignatureStatus::Unsigned;
+                bool matchesUnsigned = !showOnlyUnsigned || sig == SignatureStatus::Unsigned || sig == SignatureStatus::Cheat;
 
                 bool matchesLogon = true;
                 if (showAfterLogon && !info.lastExecutionTimes.empty())
@@ -650,8 +741,9 @@ int WINAPI WinMain
                                         switch (s) {
                                         case SignatureStatus::Signed: return 0;
                                         case SignatureStatus::Unsigned: return 1;
-                                        case SignatureStatus::NotFound: return 2;
-                                        default: return 3;
+                                        case SignatureStatus::Cheat:    return 2;
+                                        case SignatureStatus::NotFound: return 3;
+                                        default: return 4;
                                         }
                                         };
                                     return ascending ? getOrder(GetSignatureStatus(a.info.mainExecutablePath))
@@ -731,6 +823,7 @@ int WINAPI WinMain
                         {
                         case SignatureStatus::Signed:   color = ImVec4(0.2f, 0.8f, 0.2f, 1.0f); text = "SIGNED"; break;
                         case SignatureStatus::Unsigned: color = ImVec4(0.9f, 0.2f, 0.2f, 1.0f); text = "UNSIGNED"; break;
+                        case SignatureStatus::Cheat:    color = ImVec4(1.0f, 0.0f, 0.0f, 1.0f); text = "CHEAT"; break;
                         default:                        color = ImVec4(0.8f, 0.5f, 0.1f, 1.0f); text = "NOT FOUND"; break;
                         }
                         ImGui::TextColored(color, text);
@@ -810,6 +903,7 @@ int WINAPI WinMain
                                     {
                                     case SignatureStatus::Signed:   color = ImVec4(0.2f, 0.8f, 0.2f, 1.0f); text = "SIGNED"; break;
                                     case SignatureStatus::Unsigned: color = ImVec4(0.9f, 0.2f, 0.2f, 1.0f); text = "UNSIGNED"; break;
+                                    case SignatureStatus::Cheat:    color = ImVec4(1.0f, 0.0f, 0.0f, 1.0f); text = "CHEAT"; break;
                                     default:                        color = ImVec4(0.8f, 0.5f, 0.1f, 1.0f); text = "NOT FOUND"; break;
                                     }
                                     ImGui::TextColored(color, "%s", text);
