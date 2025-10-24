@@ -14,7 +14,6 @@
 #include "ui_help/_usn_parser.h"
 #include "ui_help/_service_status.h"
 #include "privilege/_privilege.hpp"
-#include "privilege/_priority.hh"
 
 #include <d3d11.h>
 #include <tchar.h>
@@ -56,6 +55,12 @@ struct IconDataDX11 {
 };
 
 static std::unordered_map<std::wstring, IconDataDX11> g_iconsCache;
+static std::unordered_set<std::wstring> g_pendingIcons;
+static std::queue<std::wstring> g_iconQueue;
+static std::mutex g_iconMutex;
+static std::condition_variable g_iconCv;
+static bool g_iconThreadExit = false;
+static IconDataDX11 g_genericIcon;
 
 void CreateRenderTarget()
 {
@@ -186,6 +191,67 @@ bool LoadFileIconDX11(ID3D11Device* device, const std::wstring& filePath, IconDa
     return true;
 }
 
+void IconWorkerThread(ID3D11Device* device)
+{
+    while (true)
+    {
+        std::wstring path;
+
+        {
+            std::unique_lock<std::mutex> lock(g_iconMutex);
+            g_iconCv.wait(lock, [] { return !g_iconQueue.empty() || g_iconThreadExit; });
+            if (g_iconThreadExit && g_iconQueue.empty()) break;
+
+            path = g_iconQueue.front();
+            g_iconQueue.pop();
+        }
+
+        IconDataDX11 icon;
+        if (!LoadFileIconDX11(device, path, icon))
+            icon = g_genericIcon;
+
+        {
+            std::lock_guard<std::mutex> lock(g_iconMutex);
+            g_iconsCache[path] = std::move(icon);
+            g_pendingIcons.erase(path);
+        }
+    }
+}
+
+void EnsureIconLoadedAsync(ID3D11Device* device, const std::wstring& path)
+{
+    if (path.empty() || !device) return;
+
+    std::lock_guard<std::mutex> lock(g_iconMutex);
+    if (g_iconsCache.contains(path) || g_pendingIcons.contains(path))
+        return;
+
+    g_pendingIcons.insert(path);
+    g_iconQueue.push(path);
+    g_iconCv.notify_one();
+
+    static bool threadStarted = false;
+    if (!threadStarted)
+    {
+        threadStarted = true;
+        std::thread(IconWorkerThread, device).detach();
+    }
+}
+
+IconDataDX11* GetOrQueueIcon(ID3D11Device* device, const std::wstring& path)
+{
+    {
+        std::lock_guard<std::mutex> lock(g_iconMutex);
+        auto it = g_iconsCache.find(path);
+        if (it != g_iconsCache.end())
+            return &it->second;
+    }
+
+    EnsureIconLoadedAsync(device, path);
+    return &g_genericIcon;
+}
+
+
 void CopyToClipboard(const std::wstring& text)
 {
     if (OpenClipboard(nullptr))
@@ -250,8 +316,6 @@ int WINAPI WinMain
     _In_ LPSTR     lpCmdLine,
     _In_ int       nCmdShow
 ) {
-    ElevateProcessPriority();
-
     WNDCLASSEX wc = { sizeof(WNDCLASSEX), CS_CLASSDC, WndProc, 0L, 0L, GetModuleHandle(NULL),
                       NULL, NULL, NULL, NULL, _T("PrefetchView++"), NULL };
     RegisterClassEx(&wc);
@@ -693,7 +757,50 @@ int WINAPI WinMain
             ImGui::PushStyleVar(ImGuiStyleVar_Alpha, fadeAlpha);
 
             static std::vector<PrefetchResult> sortedData;
-            sortedData = filteredData;
+            static std::vector<PrefetchResult> lastFilteredData;
+            static int lastSortColumn = 0;
+            static bool lastSortAscending = true;
+
+            auto sortLambda = [](const PrefetchResult& a, const PrefetchResult& b, int column, bool ascending) {
+                switch (column)
+                {
+                case 0: {
+                    time_t ta = a.info.lastExecutionTimes.empty() ? 0 : a.info.lastExecutionTimes.front();
+                    time_t tb = b.info.lastExecutionTimes.empty() ? 0 : b.info.lastExecutionTimes.front();
+                    return ascending ? ta < tb : ta > tb;
+                }
+                case 1: return ascending ? a.fileName < b.fileName : a.fileName > b.fileName;
+                case 2: return ascending ? a.info.mainExecutablePath < b.info.mainExecutablePath
+                    : a.info.mainExecutablePath > b.info.mainExecutablePath;
+                case 3: {
+                    auto getOrder = [](SignatureStatus s) {
+                        switch (s) {
+                        case SignatureStatus::Signed: return 0;
+                        case SignatureStatus::Unsigned: return 1;
+                        case SignatureStatus::Cheat: return 2;
+                        case SignatureStatus::NotFound: return 3;
+                        default: return 4;
+                        }
+                        };
+                    return ascending ? getOrder(a.info.signatureStatus) < getOrder(b.info.signatureStatus)
+                        : getOrder(a.info.signatureStatus) > getOrder(b.info.signatureStatus);
+                }
+                default: return false;
+                }
+                };
+
+            if (filteredData.size() != lastFilteredData.size() ||
+                !std::equal(filteredData.begin(), filteredData.end(), lastFilteredData.begin()))
+            {
+                sortedData = filteredData;
+                lastFilteredData = filteredData;
+
+                if (!sortedData.empty())
+                    std::sort(sortedData.begin(), sortedData.end(),
+                        [sortLambda](const PrefetchResult& a, const PrefetchResult& b) {
+                            return sortLambda(a, b, lastSortColumn, lastSortAscending);
+                        });
+            }
 
             float dt = io.DeltaTime;
             float target = (selectedIndex != -1) ? targetPanelHeight : 0.0f;
@@ -715,49 +822,44 @@ int WINAPI WinMain
 
                 if (ImGuiTableSortSpecs* sortSpecs = ImGui::TableGetSortSpecs())
                 {
-                    if (!sortedData.empty())
+                    if (!sortedData.empty() && sortSpecs->SpecsCount > 0)
                     {
-                        const ImGuiTableColumnSortSpecs& spec = sortSpecs->Specs[0];
+                        const auto& spec = sortSpecs->Specs[0];
                         int column = spec.ColumnIndex;
                         bool ascending = (spec.SortDirection == ImGuiSortDirection_Ascending);
 
-                        std::sort(sortedData.begin(), sortedData.end(),
-                            [column, ascending](const PrefetchResult& a, const PrefetchResult& b)
-                            {
-                                switch (column)
-                                {
-                                case 0:
-                                {
-                                    time_t ta = a.info.lastExecutionTimes.empty() ? 0 : a.info.lastExecutionTimes.front();
-                                    time_t tb = b.info.lastExecutionTimes.empty() ? 0 : b.info.lastExecutionTimes.front();
-                                    return ascending ? ta < tb : ta > tb;
-                                }
-                                case 1: return ascending ? a.fileName < b.fileName : a.fileName > b.fileName;
-                                case 2: return ascending ? a.info.mainExecutablePath < b.info.mainExecutablePath
-                                    : a.info.mainExecutablePath > b.info.mainExecutablePath;
-                                case 3:
-                                {
-                                    auto getOrder = [](SignatureStatus s) {
-                                        switch (s) {
-                                        case SignatureStatus::Signed: return 0;
-                                        case SignatureStatus::Unsigned: return 1;
-                                        case SignatureStatus::Cheat:    return 2;
-                                        case SignatureStatus::NotFound: return 3;
-                                        default: return 4;
-                                        }
-                                        };
-                                    return ascending ? getOrder(GetSignatureStatus(a.info.mainExecutablePath))
-                                        < getOrder(GetSignatureStatus(b.info.mainExecutablePath))
-                                        : getOrder(GetSignatureStatus(a.info.mainExecutablePath))
-                                        > getOrder(GetSignatureStatus(b.info.mainExecutablePath));
-                                }
-                                default: return false;
-                                }
-                            });
+                        if (column != lastSortColumn || ascending != lastSortAscending || sortSpecs->SpecsDirty)
+                        {
+                            std::sort(sortedData.begin(), sortedData.end(),
+                                [sortLambda, column, ascending](const PrefetchResult& a, const PrefetchResult& b) {
+                                    return sortLambda(a, b, column, ascending);
+                                });
 
-                        sortSpecs->SpecsDirty = false;
+                            lastSortColumn = column;
+                            lastSortAscending = ascending;
+                            sortSpecs->SpecsDirty = false;
+                        }
                     }
                 }
+
+                auto renderColumn = [](int colIndex, const char* text) {
+                    ImGui::TableSetColumnIndex(colIndex);
+                    ImGui::TextUnformatted(text);
+                    };
+
+                auto renderSignatureColumn = [](SignatureStatus s) {
+                    ImGui::TableSetColumnIndex(3);
+                    ImVec4 color;
+                    const char* text;
+                    switch (s)
+                    {
+                    case SignatureStatus::Signed:   color = ImVec4(0.2f, 0.8f, 0.2f, 1.0f); text = "SIGNED"; break;
+                    case SignatureStatus::Unsigned: color = ImVec4(0.9f, 0.2f, 0.2f, 1.0f); text = "UNSIGNED"; break;
+                    case SignatureStatus::Cheat:    color = ImVec4(1.0f, 0.0f, 0.0f, 1.0f); text = "CHEAT"; break;
+                    default:                        color = ImVec4(0.8f, 0.5f, 0.1f, 1.0f); text = "NOT FOUND"; break;
+                    }
+                    ImGui::TextColored(color, text);
+                    };
 
                 ImGuiListClipper clipper;
                 clipper.Begin(static_cast<int>(sortedData.size()));
@@ -770,63 +872,34 @@ int WINAPI WinMain
 
                         ImGui::TableNextRow();
 
-                        ImGui::TableSetColumnIndex(0);
-                        std::string execTime = "N/A";
-                        if (!info.lastExecutionTimes.empty()) {
-                            time_t t = info.lastExecutionTimes.front();
-                            struct tm tmBuf;
-                            localtime_s(&tmBuf, &t);
-                            char buffer[64];
-                            strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", &tmBuf);
-                            execTime = buffer;
-                        }
-                        ImGui::TextUnformatted(execTime.c_str());
+                        renderColumn(0, info.cachedExecTime.c_str());
 
                         ImGui::TableSetColumnIndex(1);
                         bool isSelected = (i == selectedIndex);
                         if (ImGui::Selectable(result.fileName.c_str(), isSelected, ImGuiSelectableFlags_SpanAllColumns))
                             selectedIndex = (selectedIndex != i) ? i : -1;
 
-                        std::string popupId = "popup_table_path_" + std::to_string(i);
+                        ImGui::PushID(i);
                         if (ImGui::IsItemHovered() && ImGui::IsMouseReleased(ImGuiMouseButton_Right))
-                            ImGui::OpenPopup(popupId.c_str());
-
-                        if (ImGui::BeginPopup(popupId.c_str()))
+                            ImGui::OpenPopup("popup_table_path");
+                        if (ImGui::BeginPopup("popup_table_path"))
                         {
-                            wchar_t folderPath[MAX_PATH];
-                            wcscpy_s(folderPath, info.mainExecutablePath.c_str());
-                            PathRemoveFileSpecW(folderPath);
-
                             if (ImGui::Selectable("Copy Path")) CopyToClipboard(info.mainExecutablePath);
-                            if (ImGui::Selectable("Open Path")) ShellExecuteW(NULL, L"explore", folderPath, NULL, NULL, SW_SHOWNORMAL);
+                            if (ImGui::Selectable("Open Path")) ShellExecuteW(NULL, L"explore", info.cachedFolderPath.c_str(), NULL, NULL, SW_SHOWNORMAL);
                             ImGui::EndPopup();
                         }
+                        ImGui::PopID();
 
                         ImGui::TableSetColumnIndex(2);
-                        IconDataDX11* iconPtr = nullptr;
-                        auto it = g_iconsCache.find(info.mainExecutablePath);
-                        if (it != g_iconsCache.end()) iconPtr = &it->second;
-                        else {
-                            IconDataDX11 icon;
-                            if (LoadFileIconDX11(g_pd3dDevice, info.mainExecutablePath, icon))
-                                g_iconsCache[info.mainExecutablePath] = icon;
-                            iconPtr = &g_iconsCache[info.mainExecutablePath];
-                        }
-                        if (iconPtr && iconPtr->IsLoaded) { ImGui::Image(iconPtr->TextureView.Get(), ImVec2(16, 16)); ImGui::SameLine(0, 5); }
-                        ImGui::TextUnformatted(WStringToUTF8(info.mainExecutablePath).c_str());
-
-                        ImGui::TableSetColumnIndex(3);
-                        SignatureStatus status = GetSignatureStatus(info.mainExecutablePath);
-                        ImVec4 color;
-                        const char* text;
-                        switch (status)
+                        IconDataDX11* iconPtr = GetOrQueueIcon(g_pd3dDevice, info.mainExecutablePath);
+                        if (iconPtr && iconPtr->IsLoaded)
                         {
-                        case SignatureStatus::Signed:   color = ImVec4(0.2f, 0.8f, 0.2f, 1.0f); text = "SIGNED"; break;
-                        case SignatureStatus::Unsigned: color = ImVec4(0.9f, 0.2f, 0.2f, 1.0f); text = "UNSIGNED"; break;
-                        case SignatureStatus::Cheat:    color = ImVec4(1.0f, 0.0f, 0.0f, 1.0f); text = "CHEAT"; break;
-                        default:                        color = ImVec4(0.8f, 0.5f, 0.1f, 1.0f); text = "NOT FOUND"; break;
+                            ImGui::Image(iconPtr->TextureView.Get(), ImVec2(16, 16));
+                            ImGui::SameLine(0, 5);
                         }
-                        ImGui::TextColored(color, text);
+                        renderColumn(2, info.cachedUTF8Path.c_str());
+
+                        renderSignatureColumn(info.signatureStatus);
                     }
                 }
 
@@ -872,18 +945,7 @@ int WINAPI WinMain
 
                                     ImGui::PushID(i);
 
-                                    IconDataDX11* iconPtr = nullptr;
-                                    auto it = g_iconsCache.find(wname);
-                                    if (it != g_iconsCache.end())
-                                        iconPtr = &it->second;
-                                    else
-                                    {
-                                        IconDataDX11 icon;
-                                        if (LoadFileIconDX11(g_pd3dDevice, wname, icon))
-                                            g_iconsCache[wname] = icon;
-                                        iconPtr = &g_iconsCache[wname];
-                                    }
-
+                                    IconDataDX11* iconPtr = GetOrQueueIcon(g_pd3dDevice, wname);
                                     if (iconPtr && iconPtr->IsLoaded)
                                     {
                                         ImGui::Image(iconPtr->TextureView.Get(), ImVec2(16, 16));
@@ -934,8 +996,7 @@ int WINAPI WinMain
                     if (ImGui::BeginTabItem("Details"))
                     {
                         ImGui::Text("File: %s", selected.fileName.c_str());
-                        ImGui::Text("Executable Path: %s", WStringToUTF8(info.mainExecutablePath).c_str());
-
+                        ImGui::Text("Executable Path: %s", info.cachedUTF8Path.c_str());
                         ImGui::Text("Version: %d", info.version);
                         ImGui::Text("Signature: 0x%X", info.signature);
 

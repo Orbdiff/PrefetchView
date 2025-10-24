@@ -15,6 +15,20 @@
 #include <windows.h>
 #include <type_traits>
 #include <algorithm>
+#include <thread>
+#include <future>
+#include <mutex>
+#include <filesystem>
+#include <Shlwapi.h>
+
+inline std::string WStringToUTF8(const std::wstring& wstr)
+{
+    if (wstr.empty()) return {};
+    int size_needed = WideCharToMultiByte(CP_UTF8, 0, wstr.data(), (int)wstr.size(), nullptr, 0, nullptr, nullptr);
+    std::string result(size_needed, 0);
+    WideCharToMultiByte(CP_UTF8, 0, wstr.data(), (int)wstr.size(), result.data(), size_needed, nullptr, nullptr);
+    return result;
+}
 
 struct PrefetchInfo
 {
@@ -28,6 +42,17 @@ struct PrefetchInfo
     std::vector<time_t> lastExecutionTimes;
     SignatureStatus signatureStatus = SignatureStatus::NotFound;
     std::vector<SignatureStatus> fileSignatures;
+
+    std::string cachedExecTime;
+    std::string cachedUTF8Path;
+    std::wstring cachedFolderPath;
+
+    bool operator==(const PrefetchInfo& other) const {
+        return mainExecutablePath == other.mainExecutablePath &&
+            signatureStatus == other.signatureStatus;
+    }
+
+    bool operator!=(const PrefetchInfo& other) const { return !(*this == other); }
 };
 
 class PrefetchFile {
@@ -89,9 +114,58 @@ public:
         else
             info.signatureStatus = SignatureStatus::NotFound;
 
-        info.fileSignatures.reserve(info.fileNames.size());
-        for (const auto& path : info.fileNames)
-            info.fileSignatures.push_back(GetSignatureStatus(path));
+        const unsigned hwThreads = std::max(1u, std::thread::hardware_concurrency());
+        const unsigned threadCount = std::min(6u, hwThreads);
+
+        const size_t totalFiles = info.fileNames.size();
+        const size_t batchSize = (totalFiles + threadCount - 1) / threadCount;
+
+        std::vector<std::future<std::vector<SignatureStatus>>> futures;
+        futures.reserve(threadCount);
+
+        for (unsigned i = 0; i < threadCount; ++i)
+        {
+            size_t start = i * batchSize;
+            if (start >= totalFiles) break;
+            size_t end = std::min(start + batchSize, totalFiles);
+
+            futures.emplace_back(std::async(std::launch::async, [start, end, &info]() {
+                std::vector<SignatureStatus> localResults;
+                localResults.reserve(end - start);
+
+                for (size_t j = start; j < end; ++j)
+                    localResults.push_back(GetSignatureStatus(info.fileNames[j]));
+
+                return localResults;
+                }));
+        }
+
+        info.fileSignatures.reserve(totalFiles);
+        for (auto& f : futures)
+        {
+            auto partial = f.get();
+            info.fileSignatures.insert(info.fileSignatures.end(),
+                std::make_move_iterator(partial.begin()),
+                std::make_move_iterator(partial.end()));
+        }
+
+        if (!info.lastExecutionTimes.empty()) {
+            time_t t = info.lastExecutionTimes.front();
+            struct tm tmBuf;
+            localtime_s(&tmBuf, &t);
+            char buffer[64];
+            strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", &tmBuf);
+            info.cachedExecTime = buffer;
+        }
+        else {
+            info.cachedExecTime = "N/A";
+        }
+
+        info.cachedUTF8Path = WStringToUTF8(info.mainExecutablePath);
+
+        info.cachedFolderPath = info.mainExecutablePath;
+        wchar_t* folderPath = &info.cachedFolderPath[0];
+        PathRemoveFileSpecW(folderPath);
 
         return info;
     }

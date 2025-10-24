@@ -10,16 +10,16 @@
 #include <locale>
 #include <ctime>
 
-struct PrefetchResult
-{
+struct PrefetchResult {
     std::string fileName;
     PrefetchInfo info;
-};
 
-static std::string WStringToUTF8(const std::wstring& wstr)
-{
-    return std::wstring_convert<std::codecvt_utf8<wchar_t>>().to_bytes(wstr);
-}
+    bool operator==(const PrefetchResult& other) const {
+        return fileName == other.fileName && info == other.info;
+    }
+
+    bool operator!=(const PrefetchResult& other) const { return !(*this == other); }
+};
 
 std::vector<PrefetchResult> ScanPrefetchFolder()
 {
