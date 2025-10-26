@@ -45,7 +45,6 @@ extern ID3D11Device* g_pd3dDevice;
 std::atomic<bool> loading(true);
 std::mutex dataMutex;
 std::vector<PrefetchResult> prefetchData;
-float fadeAlpha = 0.0f;
 
 struct IconDataDX11 {
     Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> TextureView;
@@ -480,11 +479,13 @@ int WINAPI WinMain
                 float angle = t * 3.0f + i * 1.0f;
                 float start = angle;
                 float end = angle + 1.2f;
+
+                ImU32 color = IM_COL32(255 - i * 50, 100 + i * 40, 150 + i * 30, 255);
                 draw_list->PathArcTo(center, radius - i * 6.0f, start, end, 32);
-                draw_list->PathStroke(IM_COL32(120 + i * 40, 180, 255 - i * 50, 255), false, 4.0f);
+                draw_list->PathStroke(color, false, 4.0f);
             }
 
-            const char* loadingText = "Parse Prefetch...";
+            const char* loadingText = "Parsing Prefetch...";
             ImVec2 textSize = ImGui::CalcTextSize(loadingText);
             ImVec2 textPos = ImVec2(center.x - textSize.x * 0.5f, center.y + baseRadius + 15.0f);
 
@@ -492,8 +493,8 @@ int WINAPI WinMain
             int alpha = static_cast<int>(fadeIn * textPulse * 255.0f);
             if (alpha < 220) alpha = 220;
 
-            ImU32 cyanLight = IM_COL32(200, 255, 255, alpha);
-            draw_list->AddText(textPos, cyanLight, loadingText);
+            ImU32 lightPurple = IM_COL32(180, 130, 255, alpha);
+            draw_list->AddText(textPos, lightPurple, loadingText);
         }
         else if (!prefetchData.empty())
         {
@@ -513,8 +514,12 @@ int WINAPI WinMain
             ImGui::SameLine(0, 20);
             bool checkboxChanged = false;
             checkboxChanged |= ImGui::Checkbox("Only Unsigned", &showOnlyUnsigned);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Show paths without a signature or cheat signature");
             ImGui::SameLine(0, 20);
             checkboxChanged |= ImGui::Checkbox("Show in Instance", &showAfterLogon);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Show all paths after logon-time");
             ImGui::SameLine();
 
             float buttonWidth = 160.0f;
@@ -537,6 +542,11 @@ int WINAPI WinMain
                     auto results = GetSysMainInfo();
                     ImGui::GetIO().UserData = new std::vector<ServiceInfo>(std::move(results));
                     }).detach();
+            }
+
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Information about Sysmain time");
             }
 
             ImGui::SameLine();
@@ -566,6 +576,11 @@ int WINAPI WinMain
                         ImGui::GetIO().UserData = new std::vector<USNJournalReader::USNEvent>(std::move(results));
                     }
                     }).detach();
+            }
+
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Displays deleted or renamed entries of pfs files");
             }
 
             if (showSysMainPopup) ImGui::OpenPopup("SysMain Info");
@@ -912,14 +927,19 @@ int WINAPI WinMain
                 ImGui::Separator();
                 ImGui::BeginChild("BottomPanel", ImVec2(0, panelHeight), true);
 
-                if (selectedIndex != lastSelected)
-                {
-                    ImGui::SetScrollY(0.0f);
+                const bool selectionChanged = (selectedIndex != lastSelected);
+                if (selectionChanged)
                     lastSelected = selectedIndex;
-                }
 
                 const auto& selected = sortedData[selectedIndex];
                 const auto& info = selected.info;
+
+                static bool showOnlyUnsigned = false;
+                static bool showOnlyNotFound = false;
+                static float fadeAlpha = 1.0f;
+                const float fadeSpeed = 3.0f;
+
+                bool checkboxChanged = false;
 
                 if (ImGui::BeginTabBar("DetailsTabs"))
                 {
@@ -930,66 +950,145 @@ int WINAPI WinMain
                         lastSelected = -1;
                     }
 
+                    ImGui::SameLine(ImGui::GetContentRegionAvail().x - 140.0f);
+                    if (ImGui::Button("Filter Options"))
+                        ImGui::OpenPopup("FilterPopup");
+
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Opens the filter options");
+
+                    if (ImGui::IsPopupOpen("FilterPopup"))
+                    {
+                        ImVec2 popupPos = ImGui::GetItemRectMin();
+                        popupPos.y += ImGui::GetItemRectSize().y + 4.0f;
+                        ImGui::SetNextWindowPos(popupPos);
+                    }
+
+                    if (ImGui::BeginPopup("FilterPopup"))
+                    {
+                        ImGui::Separator();
+                        checkboxChanged |= ImGui::Checkbox("Show Unsigned", &showOnlyUnsigned);
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip("Show paths without a signature or cheat signature");
+                        checkboxChanged |= ImGui::Checkbox("Show Not Found", &showOnlyNotFound);
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip("Show paths that were not found :(");
+                        ImGui::Separator();
+                        ImGui::EndPopup();
+                    }
+
+                    if (checkboxChanged)
+                        fadeAlpha = 0.0f;
+
                     if (ImGui::BeginTabItem("Referenced Files"))
                     {
-                        if (!info.fileNames.empty())
+                        ImGui::Separator();
+                        ImGuiIO& io = ImGui::GetIO();
+                        fadeAlpha += io.DeltaTime * fadeSpeed;
+                        if (fadeAlpha > 1.0f) fadeAlpha = 1.0f;
+                        ImGui::PushStyleVar(ImGuiStyleVar_Alpha, fadeAlpha);
+
+                        std::vector<int> visibleIndices;
+                        visibleIndices.reserve(info.fileNames.size());
+                        const bool filterActive = showOnlyUnsigned || showOnlyNotFound;
+
+                        for (int i = 0; i < static_cast<int>(info.fileNames.size()); ++i)
                         {
-                            ImGuiListClipper clipper;
-                            clipper.Begin(static_cast<int>(info.fileNames.size()));
-                            while (clipper.Step())
+                            SignatureStatus status = info.fileSignatures[i];
+                            bool matches = false;
+
+                            if (!filterActive)
                             {
-                                for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; i++)
+                                matches = true;
+                            }
+                            else
+                            {
+                                if (showOnlyUnsigned && (status == SignatureStatus::Unsigned || status == SignatureStatus::Cheat))
+                                    matches = true;
+                                if (showOnlyNotFound && status == SignatureStatus::NotFound)
+                                    matches = true;
+                            }
+
+                            if (matches)
+                                visibleIndices.push_back(i);
+                        }
+
+                        if (!visibleIndices.empty())
+                        {
+                            if (ImGui::BeginTable("RefFilesTable", 2,
+                                ImGuiTableFlags_Resizable | ImGuiTableFlags_RowBg |
+                                ImGuiTableFlags_BordersInner | ImGuiTableFlags_ScrollY))
+                            {
+                                ImGui::TableSetupColumn("File Path", ImGuiTableColumnFlags_WidthStretch);
+                                ImGui::TableSetupColumn("Signature", ImGuiTableColumnFlags_WidthFixed, 120.0f);
+                                ImGui::TableHeadersRow();
+
+                                ImGuiListClipper clipper;
+                                clipper.Begin(static_cast<int>(visibleIndices.size()));
+                                while (clipper.Step())
                                 {
-                                    const auto& wname = info.fileNames[i];
-                                    std::string utf8 = WStringToUTF8(wname);
-
-                                    ImGui::PushID(i);
-
-                                    IconDataDX11* iconPtr = GetOrQueueIcon(g_pd3dDevice, wname);
-                                    if (iconPtr && iconPtr->IsLoaded)
+                                    for (int v = clipper.DisplayStart; v < clipper.DisplayEnd; ++v)
                                     {
-                                        ImGui::Image(iconPtr->TextureView.Get(), ImVec2(16, 16));
-                                        ImGui::SameLine(0, 5);
+                                        int i = visibleIndices[v];
+                                        if (selectionChanged && v == 0)
+                                            ImGui::SetScrollHereY(0.0f);
+
+                                        const auto& wname = info.fileNames[i];
+                                        std::string utf8 = WStringToUTF8(wname);
+
+                                        ImGui::PushID(i);
+                                        ImGui::TableNextRow();
+
+                                        ImGui::TableSetColumnIndex(0);
+                                        IconDataDX11* iconPtr = GetOrQueueIcon(g_pd3dDevice, wname);
+                                        if (iconPtr && iconPtr->IsLoaded)
+                                        {
+                                            ImGui::Image(iconPtr->TextureView.Get(), ImVec2(16, 16));
+                                            ImGui::SameLine(0, 5);
+                                        }
+                                        ImGui::TextUnformatted(utf8.c_str());
+
+                                        if (ImGui::IsItemHovered() && ImGui::IsMouseReleased(ImGuiMouseButton_Right))
+                                            ImGui::OpenPopup("popup_ref_path");
+
+                                        if (ImGui::BeginPopup("popup_ref_path"))
+                                        {
+                                            wchar_t folderPath[MAX_PATH];
+                                            wcscpy_s(folderPath, wname.c_str());
+                                            PathRemoveFileSpecW(folderPath);
+
+                                            if (ImGui::Selectable("Copy Path")) CopyToClipboard(wname);
+                                            if (ImGui::Selectable("Open Path")) ShellExecuteW(NULL, L"explore", folderPath, NULL, NULL, SW_SHOWNORMAL);
+
+                                            ImGui::EndPopup();
+                                        }
+
+                                        ImGui::TableSetColumnIndex(1);
+                                        SignatureStatus status = info.fileSignatures[i];
+                                        ImVec4 color;
+                                        const char* text;
+                                        switch (status)
+                                        {
+                                        case SignatureStatus::Signed:   color = ImVec4(0.2f, 0.8f, 0.2f, 1.0f); text = "SIGNED"; break;
+                                        case SignatureStatus::Unsigned: color = ImVec4(0.9f, 0.2f, 0.2f, 1.0f); text = "UNSIGNED"; break;
+                                        case SignatureStatus::Cheat:    color = ImVec4(1.0f, 0.0f, 0.0f, 1.0f); text = "CHEAT"; break;
+                                        default:                        color = ImVec4(0.8f, 0.5f, 0.1f, 1.0f); text = "NOT FOUND"; break;
+                                        }
+                                        ImGui::TextColored(color, "%s", text);
+
+                                        ImGui::PopID();
                                     }
-
-                                    ImGui::TextUnformatted(utf8.c_str());
-
-                                    if (ImGui::IsItemHovered() && ImGui::IsMouseReleased(ImGuiMouseButton_Right))
-                                        ImGui::OpenPopup("popup_ref_path");
-
-                                    ImGui::SameLine();
-                                    SignatureStatus status = info.fileSignatures[i];
-                                    ImVec4 color;
-                                    const char* text;
-                                    switch (status)
-                                    {
-                                    case SignatureStatus::Signed:   color = ImVec4(0.2f, 0.8f, 0.2f, 1.0f); text = "SIGNED"; break;
-                                    case SignatureStatus::Unsigned: color = ImVec4(0.9f, 0.2f, 0.2f, 1.0f); text = "UNSIGNED"; break;
-                                    case SignatureStatus::Cheat:    color = ImVec4(1.0f, 0.0f, 0.0f, 1.0f); text = "CHEAT"; break;
-                                    default:                        color = ImVec4(0.8f, 0.5f, 0.1f, 1.0f); text = "NOT FOUND"; break;
-                                    }
-                                    ImGui::TextColored(color, "%s", text);
-
-                                    if (ImGui::BeginPopup("popup_ref_path"))
-                                    {
-                                        wchar_t folderPath[MAX_PATH];
-                                        wcscpy_s(folderPath, wname.c_str());
-                                        PathRemoveFileSpecW(folderPath);
-
-                                        if (ImGui::Selectable("Copy Path")) CopyToClipboard(wname);
-                                        if (ImGui::Selectable("Open Path")) ShellExecuteW(NULL, L"explore", folderPath, NULL, NULL, SW_SHOWNORMAL);
-
-                                        ImGui::EndPopup();
-                                    }
-
-                                    ImGui::PopID();
                                 }
+
+                                ImGui::EndTable();
                             }
                         }
                         else
                         {
                             ImGui::TextDisabled("No referenced files found.");
                         }
+
+                        ImGui::PopStyleVar();
                         ImGui::EndTabItem();
                     }
 
@@ -1014,21 +1113,32 @@ int WINAPI WinMain
                             return ft ? FileTimeToString(*ft) : "N/A";
                             };
 
-                        std::string fullPfPath = "C:\\Windows\\Prefetch\\" + selected.fileName;
-
-                        WIN32_FILE_ATTRIBUTE_DATA pfInfo;
-                        if (GetFileAttributesExA(fullPfPath.c_str(), GetFileExInfoStandard, &pfInfo))
+                        char windowsPath[MAX_PATH] = { 0 };
+                        if (GetWindowsDirectoryA(windowsPath, MAX_PATH))
                         {
-                            LARGE_INTEGER pfSize;
-                            pfSize.HighPart = pfInfo.nFileSizeHigh;
-                            pfSize.LowPart = pfInfo.nFileSizeLow;
+                            std::string fullPfPath = std::string(windowsPath) + "\\Prefetch\\" + selected.fileName;
 
-                            ImGui::Text("Prefetch Size: %s", formatFileSize(pfSize.QuadPart).c_str());
-                            ImGui::Text("Prefetch Creation: %s", FileTimeToString(pfInfo.ftCreationTime).c_str());
-                            ImGui::Text("Prefetch Modified: %s", FileTimeToString(pfInfo.ftLastWriteTime).c_str());
+                            WIN32_FILE_ATTRIBUTE_DATA pfInfo;
+                            if (GetFileAttributesExA(fullPfPath.c_str(), GetFileExInfoStandard, &pfInfo))
+                            {
+                                LARGE_INTEGER pfSize;
+                                pfSize.HighPart = pfInfo.nFileSizeHigh;
+                                pfSize.LowPart = pfInfo.nFileSizeLow;
+
+                                ImGui::Text("Prefetch Size: %s", formatFileSize(pfSize.QuadPart).c_str());
+                                ImGui::Text("Prefetch Creation: %s", FileTimeToString(pfInfo.ftCreationTime).c_str());
+                                ImGui::Text("Prefetch Modified: %s", FileTimeToString(pfInfo.ftLastWriteTime).c_str());
+                            }
+                            else
+                            {
+                                ImGui::Text("Prefetch Size: N/A");
+                                ImGui::Text("Prefetch Creation: N/A");
+                                ImGui::Text("Prefetch Modified: N/A");
+                            }
                         }
                         else
                         {
+                            ImGui::Text("Prefetch Path: N/A");
                             ImGui::Text("Prefetch Size: N/A");
                             ImGui::Text("Prefetch Creation: N/A");
                             ImGui::Text("Prefetch Modified: N/A");
