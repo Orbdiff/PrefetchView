@@ -1,8 +1,4 @@
-﻿#define NOMINMAX
-#define _CRT_SECURE_NO_WARNINGS
-#define _SILENCE_CXX17_CODECVT_HEADER_DEPRECATION_WARNING
-
-#include "imgui.h"
+﻿#include "imgui.h"
 #include "imgui_impl_win32.h"
 #include "imgui_impl_dx11.h"
 
@@ -14,6 +10,7 @@
 #include "ui_help/_usn_parser.h"
 #include "ui_help/_service_status.h"
 #include "privilege/_privilege.hpp"
+#include "yara/_yara_scan.hpp"
 
 #include <d3d11.h>
 #include <tchar.h>
@@ -42,9 +39,12 @@ extern LRESULT ImGui_ImplWin32_WndProcHandler(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
 extern ID3D11Device* g_pd3dDevice;
 
-std::atomic<bool> loading(true);
-std::mutex dataMutex;
 std::vector<PrefetchResult> prefetchData;
+std::atomic<bool> isLoading{ true };
+std::atomic<bool> analysisDone{ false };
+std::mutex dataMutex;
+float fadeIn = 0.0f;
+std::atomic<int> activeThreads{ 0 };
 
 struct IconDataDX11 {
     Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> TextureView;
@@ -298,16 +298,6 @@ std::string FileTimeToString(const FILETIME& ft)
     return ss.str();
 }
 
-void LoadPrefetchData()
-{
-    std::vector<PrefetchResult> temp = ScanPrefetchFolder();
-    {
-        std::lock_guard<std::mutex> lock(dataMutex);
-        prefetchData = std::move(temp);
-    }
-    loading = false;
-}
-
 int WINAPI WinMain
 (
     _In_ HINSTANCE hInstance,
@@ -417,15 +407,19 @@ int WINAPI WinMain
         MessageBoxA(nullptr, "Failed to enable SeDebugPrivilege. Please run PrefetchView++ with perms Administrator.", "Warning", MB_OK);
     }
 
-    std::vector<PrefetchResult> prefetchData;
-    bool isLoading = true;
-    bool analysisDone = false;
-    float fadeIn = 0.0f;
+    InitGenericRules();
+    InitYara();
 
     std::thread([&]() {
-        prefetchData = ScanPrefetchFolder();
+        activeThreads++;
+        std::vector<PrefetchResult> temp = ScanPrefetchFolder();
+        {
+            std::lock_guard<std::mutex> lock(dataMutex);
+            prefetchData = std::move(temp);
+        }
         isLoading = false;
         analysisDone = true;
+        activeThreads--;
         }).detach();
 
     static int selectedIndex = -1;
@@ -474,13 +468,19 @@ int WINAPI WinMain
             float pulse = 0.8f + 0.2f * sinf(t * 3.0f);
             float radius = baseRadius * pulse;
 
+            ImU32 colors[3] = {
+                IM_COL32(255, 60, 60, 255),
+                IM_COL32(255, 130, 60, 255),
+                IM_COL32(255, 180, 90, 255)
+            };
+
             for (int i = 0; i < 3; ++i)
             {
                 float angle = t * 3.0f + i * 1.0f;
                 float start = angle;
                 float end = angle + 1.2f;
 
-                ImU32 color = IM_COL32(255 - i * 50, 100 + i * 40, 150 + i * 30, 255);
+                ImU32 color = colors[i];
                 draw_list->PathArcTo(center, radius - i * 6.0f, start, end, 32);
                 draw_list->PathStroke(color, false, 4.0f);
             }
@@ -493,10 +493,10 @@ int WINAPI WinMain
             int alpha = static_cast<int>(fadeIn * textPulse * 255.0f);
             if (alpha < 220) alpha = 220;
 
-            ImU32 lightPurple = IM_COL32(180, 130, 255, alpha);
-            draw_list->AddText(textPos, lightPurple, loadingText);
+            ImU32 lightRed = IM_COL32(255, 120, 100, alpha);
+            draw_list->AddText(textPos, lightRed, loadingText);
         }
-        else if (!prefetchData.empty())
+        else if (analysisDone)
         {
             static float fadeAlpha = 0.0f;
             static float fadeSpeed = 3.0f;
@@ -515,7 +515,7 @@ int WINAPI WinMain
             bool checkboxChanged = false;
             checkboxChanged |= ImGui::Checkbox("Only Unsigned", &showOnlyUnsigned);
             if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Show paths without a signature or cheat signature");
+                ImGui::SetTooltip("Show paths without a signature, cheat signature and yara rules");
             ImGui::SameLine(0, 20);
             checkboxChanged |= ImGui::Checkbox("Show in Instance", &showAfterLogon);
             if (ImGui::IsItemHovered())
@@ -737,7 +737,7 @@ int WINAPI WinMain
                 std::transform(nameLower.begin(), nameLower.end(), nameLower.begin(), ::tolower);
                 std::transform(pathLower.begin(), pathLower.end(), pathLower.begin(), ::tolower);
 
-                SignatureStatus sig = GetSignatureStatus(info.mainExecutablePath);
+                SignatureStatus sig = info.signatureStatus;
 
                 std::string sigText;
                 switch (sig)
@@ -969,7 +969,7 @@ int WINAPI WinMain
                         ImGui::Separator();
                         checkboxChanged |= ImGui::Checkbox("Show Unsigned", &showOnlyUnsigned);
                         if (ImGui::IsItemHovered())
-                            ImGui::SetTooltip("Show paths without a signature or cheat signature");
+                            ImGui::SetTooltip("Show paths without a signature, cheat signature and yara rules");
                         checkboxChanged |= ImGui::Checkbox("Show Not Found", &showOnlyNotFound);
                         if (ImGui::IsItemHovered())
                             ImGui::SetTooltip("Show paths that were not found :(");
@@ -1222,9 +1222,14 @@ int WINAPI WinMain
         g_pSwapChain->Present(1, 0);
     }
 
+    while (activeThreads > 0) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+
     ImGui_ImplDX11_Shutdown();
     ImGui_ImplWin32_Shutdown();
     ImGui::DestroyContext();
+    FinalizeYara();
     CleanupDeviceD3D();
     DestroyWindow(hwnd);
     UnregisterClass(wc.lpszClassName, wc.hInstance);

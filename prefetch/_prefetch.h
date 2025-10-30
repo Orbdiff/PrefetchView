@@ -3,6 +3,7 @@
 #include "_prefetch_utils.h"
 #include "../signature/_signature_parser.h"
 #include "../driver_map/_drive_mapper.h"
+#include "../yara/_yara_scan.hpp"
 
 #include <array>
 #include <optional>
@@ -24,9 +25,35 @@
 inline std::string WStringToUTF8(const std::wstring& wstr)
 {
     if (wstr.empty()) return {};
-    int size_needed = WideCharToMultiByte(CP_UTF8, 0, wstr.data(), (int)wstr.size(), nullptr, 0, nullptr, nullptr);
+
+    int size_needed = WideCharToMultiByte(
+        CP_UTF8,
+        0,
+        wstr.data(),
+        static_cast<int>(wstr.size()),
+        nullptr,
+        0,
+        nullptr,
+        nullptr
+    );
+
+    if (size_needed <= 0) return {};
+
     std::string result(size_needed, 0);
-    WideCharToMultiByte(CP_UTF8, 0, wstr.data(), (int)wstr.size(), result.data(), size_needed, nullptr, nullptr);
+
+    int converted = WideCharToMultiByte(
+        CP_UTF8,
+        0,
+        wstr.data(),
+        static_cast<int>(wstr.size()),
+        result.data(),
+        size_needed,
+        nullptr,
+        nullptr
+    );
+
+    if (converted <= 0) return {};
+
     return result;
 }
 
@@ -46,6 +73,7 @@ struct PrefetchInfo
     std::string cachedExecTime;
     std::string cachedUTF8Path;
     std::wstring cachedFolderPath;
+    std::vector<std::string> matched_rules;
 
     bool operator==(const PrefetchInfo& other) const {
         return mainExecutablePath == other.mainExecutablePath &&
