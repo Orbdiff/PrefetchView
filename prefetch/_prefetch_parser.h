@@ -2,11 +2,11 @@
 #include <string>
 #include <vector>
 #include <filesystem>
-#include <thread>
 #include <mutex>
-#include <condition_variable>
-#include <queue>
 #include <atomic>
+#include <future>
+#include <algorithm>
+#include <queue>
 
 struct PrefetchResult {
     std::string fileName;
@@ -52,9 +52,7 @@ void RunYaraScan(PrefetchInfo& info) {
 std::vector<PrefetchResult> ScanPrefetchFolder() {
     std::vector<PrefetchResult> results;
     std::queue<std::filesystem::path> tasks;
-    std::mutex queueMutex;
     std::mutex resultsMutex;
-    std::condition_variable cv;
     std::atomic<bool> done(false);
 
     char windowsPath[MAX_PATH]{};
@@ -72,26 +70,27 @@ std::vector<PrefetchResult> ScanPrefetchFolder() {
         tasks.push(entry.path());
     }
 
-    const size_t threadCount = 6;
-    std::vector<std::thread> pool;
+    const size_t hwThreads = std::max(1u, std::thread::hardware_concurrency());
+    const size_t maxConcurrentTasks = 4;
+    std::vector<std::future<void>> futures;
 
-    for (size_t t = 0; t < threadCount; ++t) {
-        pool.emplace_back([&]() {
-            while (true) {
-                std::filesystem::path path;
-                {
-                    std::lock_guard<std::mutex> lock(queueMutex);
-                    if (tasks.empty()) break;
-                    path = tasks.front();
-                    tasks.pop();
-                }
+    while (!tasks.empty() || !futures.empty()) {
 
+        while (futures.size() < maxConcurrentTasks && !tasks.empty()) {
+            std::filesystem::path path;
+            {
+                std::lock_guard<std::mutex> lock(resultsMutex);
+                path = tasks.front();
+                tasks.pop();
+            }
+
+            futures.push_back(std::async(std::launch::async, [path, &resultsMutex, &results]() {
                 try {
                     PrefetchFile pf(path.string());
-                    if (!pf.IsValid()) continue;
+                    if (!pf.IsValid()) return;
 
                     auto infoOpt = pf.ExtractInfo(path.string());
-                    if (!infoOpt) continue;
+                    if (!infoOpt) return;
 
                     RunYaraScan(*infoOpt);
 
@@ -101,13 +100,19 @@ std::vector<PrefetchResult> ScanPrefetchFolder() {
                     }
                 }
                 catch (...) {
-                    continue;
-                }
-            }
-            });
-    }
 
-    for (auto& th : pool) th.join();
+                    return;
+                }
+                }));
+        }
+
+        futures.erase(
+            std::remove_if(futures.begin(), futures.end(), [](std::future<void>& f) {
+                return f.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
+                }),
+            futures.end()
+        );
+    }
 
     return results;
 }

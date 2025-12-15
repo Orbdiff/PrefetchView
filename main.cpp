@@ -11,6 +11,7 @@
 #include "ui_help/_service_status.h"
 #include "privilege/_privilege.hpp"
 #include "yara/_yara_scan.hpp"
+#include "prefetch_bypass/info.h"
 
 #include <d3d11.h>
 #include <tchar.h>
@@ -333,7 +334,7 @@ int WINAPI WinMain
     ImFont* font = io.Fonts->AddFontFromMemoryTTF(
         (void*)Custom,
         static_cast<int>(Custom_len),
-        16.0f,
+        17.0f,
         &CustomFont
     );
 
@@ -343,61 +344,61 @@ int WINAPI WinMain
     ImVec4* colors = style.Colors;
 
     colors[ImGuiCol_Text] = ImVec4(0.90f, 0.90f, 0.90f, 1.00f);
-    colors[ImGuiCol_TextDisabled] = ImVec4(0.50f, 0.50f, 0.50f, 1.00f);
-    colors[ImGuiCol_WindowBg] = ImVec4(0.07f, 0.07f, 0.07f, 1.00f);
-    colors[ImGuiCol_ChildBg] = ImVec4(0.08f, 0.08f, 0.08f, 1.00f);
-    colors[ImGuiCol_PopupBg] = ImVec4(0.08f, 0.08f, 0.08f, 1.00f);
-    colors[ImGuiCol_FrameBg] = ImVec4(0.10f, 0.10f, 0.10f, 1.00f);
-    colors[ImGuiCol_FrameBgHovered] = ImVec4(0.18f, 0.18f, 0.18f, 1.00f);
-    colors[ImGuiCol_FrameBgActive] = ImVec4(0.22f, 0.22f, 0.22f, 1.00f);
-    colors[ImGuiCol_Border] = ImVec4(0.25f, 0.25f, 0.25f, 1.00f);
+    colors[ImGuiCol_TextDisabled] = ImVec4(0.55f, 0.55f, 0.55f, 1.00f);
+    colors[ImGuiCol_WindowBg] = ImVec4(0.10f, 0.10f, 0.10f, 1.00f);
+    colors[ImGuiCol_ChildBg] = ImVec4(0.12f, 0.12f, 0.12f, 1.00f);
+    colors[ImGuiCol_PopupBg] = ImVec4(0.12f, 0.12f, 0.12f, 1.00f);
+    colors[ImGuiCol_FrameBg] = ImVec4(0.15f, 0.15f, 0.15f, 1.00f);
+    colors[ImGuiCol_FrameBgHovered] = ImVec4(0.18f, 0.20f, 0.24f, 1.00f);
+    colors[ImGuiCol_FrameBgActive] = ImVec4(0.22f, 0.25f, 0.30f, 1.00f);
+    colors[ImGuiCol_Border] = ImVec4(0.30f, 0.30f, 0.30f, 1.00f);
     colors[ImGuiCol_BorderShadow] = ImVec4(0, 0, 0, 0);
-    colors[ImGuiCol_TitleBg] = ImVec4(0.08f, 0.08f, 0.08f, 1.00f);
-    colors[ImGuiCol_TitleBgActive] = ImVec4(0.12f, 0.12f, 0.12f, 1.00f);
-    colors[ImGuiCol_TitleBgCollapsed] = ImVec4(0.07f, 0.07f, 0.07f, 0.85f);
-    colors[ImGuiCol_MenuBarBg] = ImVec4(0.08f, 0.08f, 0.08f, 1.00f);
-    colors[ImGuiCol_ScrollbarBg] = ImVec4(0.05f, 0.05f, 0.05f, 1.00f);
-    colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.30f, 0.50f, 0.85f, 1.00f);
-    colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.35f, 0.60f, 0.95f, 1.00f);
-    colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.40f, 0.70f, 1.00f, 1.00f);
-    colors[ImGuiCol_Button] = ImVec4(0.12f, 0.12f, 0.12f, 1.00f);
-    colors[ImGuiCol_ButtonHovered] = ImVec4(0.30f, 0.50f, 0.85f, 1.00f);
-    colors[ImGuiCol_ButtonActive] = ImVec4(0.35f, 0.60f, 0.95f, 1.00f);
-    colors[ImGuiCol_SliderGrab] = ImVec4(0.30f, 0.50f, 0.85f, 1.00f);
-    colors[ImGuiCol_SliderGrabActive] = ImVec4(0.35f, 0.60f, 1.00f, 1.00f);
-    colors[ImGuiCol_CheckMark] = ImVec4(0.35f, 0.60f, 1.00f, 1.00f);
-    colors[ImGuiCol_Header] = ImVec4(0.35f, 0.60f, 1.00f, 0.5f);
-    colors[ImGuiCol_HeaderHovered] = ImVec4(0.30f, 0.50f, 0.85f, 1.00f);
-    colors[ImGuiCol_HeaderActive] = ImVec4(0.35f, 0.60f, 1.00f, 1.00f);
-    colors[ImGuiCol_Tab] = ImVec4(0.08f, 0.08f, 0.08f, 1.00f);
-    colors[ImGuiCol_TabHovered] = ImVec4(0.30f, 0.50f, 0.85f, 1.00f);
-    colors[ImGuiCol_TabActive] = ImVec4(0.35f, 0.60f, 1.00f, 1.00f);
-    colors[ImGuiCol_TabUnfocused] = ImVec4(0.08f, 0.08f, 0.08f, 1.00f);
-    colors[ImGuiCol_TabUnfocusedActive] = ImVec4(0.20f, 0.35f, 0.60f, 1.00f);
-    colors[ImGuiCol_Separator] = ImVec4(0.20f, 0.20f, 0.20f, 1.00f);
-    colors[ImGuiCol_SeparatorHovered] = ImVec4(0.30f, 0.50f, 0.85f, 1.00f);
-    colors[ImGuiCol_SeparatorActive] = ImVec4(0.35f, 0.60f, 1.00f, 1.00f);
-    colors[ImGuiCol_ResizeGrip] = ImVec4(0.20f, 0.20f, 0.20f, 1.00f);
-    colors[ImGuiCol_ResizeGripHovered] = ImVec4(0.30f, 0.50f, 0.85f, 1.00f);
-    colors[ImGuiCol_ResizeGripActive] = ImVec4(0.35f, 0.60f, 1.00f, 1.00f);
-    colors[ImGuiCol_TableHeaderBg] = ImVec4(0.08f, 0.08f, 0.08f, 1.00f);
-    colors[ImGuiCol_TableBorderStrong] = ImVec4(0.25f, 0.25f, 0.25f, 1.00f);
-    colors[ImGuiCol_TableBorderLight] = ImVec4(0.15f, 0.15f, 0.15f, 1.00f);
+    colors[ImGuiCol_TitleBg] = ImVec4(0.13f, 0.13f, 0.13f, 1.00f);
+    colors[ImGuiCol_TitleBgActive] = ImVec4(0.18f, 0.18f, 0.18f, 1.00f);
+    colors[ImGuiCol_TitleBgCollapsed] = ImVec4(0.10f, 0.10f, 0.10f, 0.90f);
+    colors[ImGuiCol_MenuBarBg] = ImVec4(0.12f, 0.12f, 0.12f, 1.00f);
+    colors[ImGuiCol_ScrollbarBg] = ImVec4(0.08f, 0.08f, 0.08f, 1.00f);
+    colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.35f, 0.35f, 0.35f, 1.00f);
+    colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.30f, 0.55f, 0.85f, 1.00f);
+    colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.35f, 0.60f, 0.95f, 1.00f);
+    colors[ImGuiCol_Button] = ImVec4(0.18f, 0.18f, 0.18f, 1.00f);
+    colors[ImGuiCol_ButtonHovered] = ImVec4(0.25f, 0.45f, 0.75f, 1.00f);
+    colors[ImGuiCol_ButtonActive] = ImVec4(0.30f, 0.55f, 0.85f, 1.00f);
+    colors[ImGuiCol_CheckMark] = ImVec4(0.35f, 0.60f, 0.95f, 1.00f);
+    colors[ImGuiCol_SliderGrab] = ImVec4(0.25f, 0.45f, 0.75f, 1.00f);
+    colors[ImGuiCol_SliderGrabActive] = ImVec4(0.30f, 0.55f, 0.85f, 1.00f);
+    colors[ImGuiCol_Header] = ImVec4(0.25f, 0.25f, 0.25f, 0.80f);
+    colors[ImGuiCol_HeaderHovered] = ImVec4(0.25f, 0.45f, 0.75f, 0.90f);
+    colors[ImGuiCol_HeaderActive] = ImVec4(0.30f, 0.55f, 0.85f, 0.90f);
+    colors[ImGuiCol_Tab] = ImVec4(0.12f, 0.12f, 0.12f, 1.00f);
+    colors[ImGuiCol_TabHovered] = ImVec4(0.25f, 0.45f, 0.75f, 1.00f);
+    colors[ImGuiCol_TabActive] = ImVec4(0.30f, 0.55f, 0.85f, 1.00f);
+    colors[ImGuiCol_TabUnfocused] = ImVec4(0.10f, 0.10f, 0.10f, 1.00f);
+    colors[ImGuiCol_TabUnfocusedActive] = ImVec4(0.20f, 0.30f, 0.45f, 1.00f);
+    colors[ImGuiCol_Separator] = ImVec4(0.30f, 0.30f, 0.30f, 1.00f);
+    colors[ImGuiCol_SeparatorHovered] = ImVec4(0.25f, 0.45f, 0.75f, 1.00f);
+    colors[ImGuiCol_SeparatorActive] = ImVec4(0.30f, 0.55f, 0.85f, 1.00f);
+    colors[ImGuiCol_ResizeGrip] = ImVec4(0.30f, 0.30f, 0.30f, 1.00f);
+    colors[ImGuiCol_ResizeGripHovered] = ImVec4(0.25f, 0.45f, 0.75f, 1.00f);
+    colors[ImGuiCol_ResizeGripActive] = ImVec4(0.30f, 0.55f, 0.85f, 1.00f);
+    colors[ImGuiCol_TableHeaderBg] = ImVec4(0.16f, 0.16f, 0.16f, 1.00f);
+    colors[ImGuiCol_TableBorderStrong] = ImVec4(0.28f, 0.28f, 0.28f, 1.00f);
+    colors[ImGuiCol_TableBorderLight] = ImVec4(0.22f, 0.22f, 0.22f, 1.00f);
     colors[ImGuiCol_TableRowBg] = ImVec4(0, 0, 0, 0);
-    colors[ImGuiCol_TableRowBgAlt] = ImVec4(0.08f, 0.08f, 0.08f, 1.00f);
+    colors[ImGuiCol_TableRowBgAlt] = ImVec4(0.13f, 0.13f, 0.13f, 1.00f);
 
     style.WindowRounding = 6.0f;
     style.FrameRounding = 4.0f;
     style.GrabRounding = 4.0f;
     style.ScrollbarRounding = 6.0f;
-    style.TabRounding = 4.0f;
+    style.TabRounding = 5.0f;
     style.WindowBorderSize = 1.0f;
-    style.FrameBorderSize = 0.8f;
-    style.ScrollbarSize = 12.0f;
-    style.ItemSpacing = ImVec2(10, 6);
+    style.FrameBorderSize = 1.0f;
+    style.ScrollbarSize = 14.0f;
+    style.ItemSpacing = ImVec2(8, 6);
     style.ItemInnerSpacing = ImVec2(6, 4);
     style.CellPadding = ImVec2(6, 4);
-    style.WindowPadding = ImVec2(12, 12);
+    style.WindowPadding = ImVec2(14, 14);
     style.FramePadding = ImVec2(8, 5);
 
     ImGui_ImplWin32_Init(hwnd);
@@ -462,44 +463,64 @@ int WINAPI WinMain
             ImVec2 center = ImVec2(pos.x + size.x * 0.5f, pos.y + size.y * 0.5f - 20.0f);
 
             ImDrawList* draw_list = ImGui::GetWindowDrawList();
-            float baseRadius = 30.0f;
+            float t = (float)ImGui::GetTime();
 
-            float t = static_cast<float>(ImGui::GetTime());
-            float pulse = 0.8f + 0.2f * sinf(t * 3.0f);
+            const int particleCount = 60;
+            for (int i = 0; i < particleCount; ++i)
+            {
+                float seed = i * 13.37f;
+                float x = pos.x + fmodf(seed * 37.0f + t * 25.0f, size.x);
+                float y = pos.y + fmodf(seed * 53.0f + t * 18.0f, size.y);
+
+                float alpha = 40.0f + 40.0f * sinf(t + seed);
+                draw_list->AddCircleFilled(
+                    ImVec2(x, y),
+                    1.5f,
+                    IM_COL32(255, 255, 255, (int)alpha)
+                );
+            }
+
+            float baseRadius = 32.0f;
+            float pulse = 0.9f + 0.1f * sinf(t * 2.5f);
             float radius = baseRadius * pulse;
 
-            ImU32 colors[3] = {
-                IM_COL32(255, 60, 60, 255),
-                IM_COL32(255, 130, 60, 255),
-                IM_COL32(255, 180, 90, 255)
+            ImU32 ringColors[3] = {
+                IM_COL32(120, 200, 255, 220),
+                IM_COL32(90, 170, 255, 200),
+                IM_COL32(60, 130, 220, 180)
             };
 
             for (int i = 0; i < 3; ++i)
             {
-                float angle = t * 3.0f + i * 1.0f;
-                float start = angle;
-                float end = angle + 1.2f;
-
-                ImU32 color = colors[i];
-                draw_list->PathArcTo(center, radius - i * 6.0f, start, end, 32);
-                draw_list->PathStroke(color, false, 4.0f);
+                float angle = t * 2.2f + i * 1.4f;
+                draw_list->PathArcTo(
+                    center,
+                    radius - i * 6.0f,
+                    angle,
+                    angle + 1.6f,
+                    48
+                );
+                draw_list->PathStroke(ringColors[i], false, 3.5f);
             }
 
             const char* loadingText = "Parsing Prefetch...";
             ImVec2 textSize = ImGui::CalcTextSize(loadingText);
-            ImVec2 textPos = ImVec2(center.x - textSize.x * 0.5f, center.y + baseRadius + 15.0f);
+            ImVec2 textPos = ImVec2(
+                center.x - textSize.x * 0.5f,
+                center.y + baseRadius + 16.0f
+            );
 
             float textPulse = 0.85f + 0.15f * sinf(t * 2.0f);
-            int alpha = static_cast<int>(fadeIn * textPulse * 255.0f);
-            if (alpha < 220) alpha = 220;
+            int alpha = (int)(fadeIn * textPulse * 255.0f);
+            if (alpha < 200) alpha = 200;
 
-            ImU32 lightRed = IM_COL32(255, 120, 100, alpha);
-            draw_list->AddText(textPos, lightRed, loadingText);
+            ImU32 coldCyan = IM_COL32(160, 220, 255, alpha);
+            draw_list->AddText(textPos, coldCyan, loadingText);
         }
         else if (analysisDone)
         {
             static float fadeAlpha = 0.0f;
-            static float fadeSpeed = 3.0f;
+            static float fadeSpeed = 2.0f;
             static bool lastShowOnlyUnsigned = false;
             static bool lastShowAfterLogon = false;
 
@@ -524,6 +545,37 @@ int WINAPI WinMain
 
             float buttonWidth = 160.0f;
             float windowRight = ImGui::GetWindowContentRegionMax().x + ImGui::GetWindowPos().x;
+            static bool showPrefetchPopup = false;
+
+            ImGui::SetCursorPosX(windowRight - 3 * buttonWidth - ImGui::GetStyle().ItemSpacing.x * 3);
+            if (ImGui::Button("Prefetch Info", ImVec2(buttonWidth, 0)))
+            {
+                std::thread([]() {
+                    if (AllocConsole())
+                    {
+                        FILE* fpOut = freopen("CONOUT$", "w", stdout);
+                        FILE* fpIn = freopen("CONIN$", "r", stdin);
+
+                        if (!fpOut || !fpIn)
+                        {
+                            MessageBoxA(nullptr, "Failed to redirect console I/O", "Error", MB_ICONERROR);
+                        }
+                        else
+                        {
+                            InfoCmd_UIPREFETCHVIEW();
+                        }
+
+                        FreeConsole();
+                    }
+                    }).detach();
+            }
+
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Open a CMD and checks multiple bypass attempts");
+            }
+
+            ImGui::SameLine();
 
             static bool showSysMainPopup = false;
             static bool isReadingSysMain = false;
@@ -531,7 +583,7 @@ int WINAPI WinMain
             static float sysmainPopupAlpha = 0.0f;
 
             ImGui::SetCursorPosX(windowRight - 2 * buttonWidth - ImGui::GetStyle().ItemSpacing.x * 2);
-            if (ImGui::Button("Read SysMain", ImVec2(buttonWidth, 0)))
+            if (ImGui::Button("Sysmain Info", ImVec2(buttonWidth, 0)))
             {
                 showSysMainPopup = true;
                 isReadingSysMain = true;
@@ -556,8 +608,8 @@ int WINAPI WinMain
             static std::vector<USNJournalReader::USNEvent> usnResults;
             static float usnPopupAlpha = 0.0f;
 
-            ImGui::SetCursorPosX(windowRight - buttonWidth);
-            if (ImGui::Button("Read USN Journal", ImVec2(buttonWidth, 0)))
+            ImGui::SetCursorPosX(windowRight - 1 * buttonWidth - ImGui::GetStyle().ItemSpacing.x * 1);
+            if (ImGui::Button("USNJournal", ImVec2(buttonWidth, 0)))
             {
                 showUSNPopup = true;
                 isReadingUSN = true;
@@ -628,7 +680,7 @@ int WINAPI WinMain
                     const auto& svc = sysmainResults[0];
 
                     ImGui::Text("PID: %u", svc.pid);
-                    ImGui::Text("Estado: %s", svc.status.c_str());
+                    ImGui::Text("Status: %s", svc.status.c_str());
                     if (svc.status == "Running")
                     {
                         ImGui::Text("Uptime: %s", svc.uptime.c_str());
@@ -822,17 +874,17 @@ int WINAPI WinMain
             panelHeight += (target - panelHeight) * dt * animationSpeed;
             float availableHeight = ImGui::GetContentRegionAvail().y - panelHeight - 8.0f;
 
-            if (ImGui::BeginTable("PrefetchTable", 4,
+            if (ImGui::BeginTable("PrefetchTable", 3,
                 ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders |
                 ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollY |
-                ImGuiTableFlags_Sortable,
-                ImVec2(0, availableHeight)))
+                ImGuiTableFlags_Sortable | ImGuiTableFlags_SizingFixedFit,
+                ImVec2(-FLT_MIN, availableHeight)))
             {
                 ImGui::TableSetupScrollFreeze(0, 1);
-                ImGui::TableSetupColumn("Time Executed", ImGuiTableColumnFlags_DefaultSort);
-                ImGui::TableSetupColumn("File Name");
-                ImGui::TableSetupColumn("Executable Path");
-                ImGui::TableSetupColumn("Signature");
+
+                ImGui::TableSetupColumn("Time Executed", ImGuiTableColumnFlags_DefaultSort | ImGuiTableColumnFlags_WidthFixed);
+                ImGui::TableSetupColumn("Executable Path", ImGuiTableColumnFlags_WidthFixed);
+                ImGui::TableSetupColumn("Signature", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_NoResize);
                 ImGui::TableHeadersRow();
 
                 if (ImGuiTableSortSpecs* sortSpecs = ImGui::TableGetSortSpecs())
@@ -863,15 +915,15 @@ int WINAPI WinMain
                     };
 
                 auto renderSignatureColumn = [](SignatureStatus s) {
-                    ImGui::TableSetColumnIndex(3);
+                    ImGui::TableSetColumnIndex(2);
                     ImVec4 color;
                     const char* text;
                     switch (s)
                     {
-                    case SignatureStatus::Signed:   color = ImVec4(0.2f, 0.8f, 0.2f, 1.0f); text = "SIGNED"; break;
-                    case SignatureStatus::Unsigned: color = ImVec4(0.9f, 0.2f, 0.2f, 1.0f); text = "UNSIGNED"; break;
-                    case SignatureStatus::Cheat:    color = ImVec4(1.0f, 0.0f, 0.0f, 1.0f); text = "CHEAT"; break;
-                    default:                        color = ImVec4(0.8f, 0.5f, 0.1f, 1.0f); text = "NOT FOUND"; break;
+                    case SignatureStatus::Signed:   color = ImVec4(0.0f, 1.0f, 0.0f, 1.0f); text = "Signed"; break;
+                    case SignatureStatus::Unsigned: color = ImVec4(1.0f, 0.0f, 0.0f, 1.0f); text = "Unsigned"; break;
+                    case SignatureStatus::Cheat:    color = ImVec4(0.25f, 0.75f, 0.95f, 1.00f); text = "Cheat"; break;
+                    default:                        color = ImVec4(0.8f, 0.5f, 0.1f, 1.0f); text = "Not Found"; break;
                     }
                     ImGui::TextColored(color, text);
                     };
@@ -891,28 +943,31 @@ int WINAPI WinMain
 
                         ImGui::TableSetColumnIndex(1);
                         bool isSelected = (i == selectedIndex);
-                        if (ImGui::Selectable(result.fileName.c_str(), isSelected, ImGuiSelectableFlags_SpanAllColumns))
-                            selectedIndex = (selectedIndex != i) ? i : -1;
 
-                        ImGui::PushID(i);
-                        if (ImGui::IsItemHovered() && ImGui::IsMouseReleased(ImGuiMouseButton_Right))
-                            ImGui::OpenPopup("popup_table_path");
-                        if (ImGui::BeginPopup("popup_table_path"))
-                        {
-                            if (ImGui::Selectable("Copy Path")) CopyToClipboard(info.mainExecutablePath);
-                            if (ImGui::Selectable("Open Path")) ShellExecuteW(NULL, L"explore", info.cachedFolderPath.c_str(), NULL, NULL, SW_SHOWNORMAL);
-                            ImGui::EndPopup();
-                        }
-                        ImGui::PopID();
-
-                        ImGui::TableSetColumnIndex(2);
                         IconDataDX11* iconPtr = GetOrQueueIcon(g_pd3dDevice, info.mainExecutablePath);
                         if (iconPtr && iconPtr->IsLoaded)
                         {
                             ImGui::Image(iconPtr->TextureView.Get(), ImVec2(16, 16));
                             ImGui::SameLine(0, 5);
                         }
-                        renderColumn(2, info.cachedUTF8Path.c_str());
+
+                        std::string uniqueID = info.cachedUTF8Path + std::to_string(i);
+                        ImGui::PushID(uniqueID.c_str());
+
+                        if (ImGui::Selectable(info.cachedUTF8Path.c_str(), isSelected, ImGuiSelectableFlags_SpanAllColumns))
+                            selectedIndex = (selectedIndex != i) ? i : -1;
+
+                        if (ImGui::IsItemHovered() && ImGui::IsMouseReleased(ImGuiMouseButton_Right))
+                            ImGui::OpenPopup("popup_table_path");
+
+                        if (ImGui::BeginPopup("popup_table_path"))
+                        {
+                            if (ImGui::Selectable("Copy Path")) CopyToClipboard(info.mainExecutablePath);
+                            if (ImGui::Selectable("Open Path")) ShellExecuteW(NULL, L"explore", info.cachedFolderPath.c_str(), NULL, NULL, SW_SHOWNORMAL);
+                            ImGui::EndPopup();
+                        }
+
+                        ImGui::PopID();
 
                         renderSignatureColumn(info.signatureStatus);
                     }
@@ -937,7 +992,7 @@ int WINAPI WinMain
                 static bool showOnlyUnsigned = false;
                 static bool showOnlyNotFound = false;
                 static float fadeAlpha = 1.0f;
-                const float fadeSpeed = 3.0f;
+                const float fadeSpeed = 2.0f;
 
                 bool checkboxChanged = false;
 
@@ -1069,10 +1124,10 @@ int WINAPI WinMain
                                         const char* text;
                                         switch (status)
                                         {
-                                        case SignatureStatus::Signed:   color = ImVec4(0.2f, 0.8f, 0.2f, 1.0f); text = "SIGNED"; break;
-                                        case SignatureStatus::Unsigned: color = ImVec4(0.9f, 0.2f, 0.2f, 1.0f); text = "UNSIGNED"; break;
-                                        case SignatureStatus::Cheat:    color = ImVec4(1.0f, 0.0f, 0.0f, 1.0f); text = "CHEAT"; break;
-                                        default:                        color = ImVec4(0.8f, 0.5f, 0.1f, 1.0f); text = "NOT FOUND"; break;
+                                        case SignatureStatus::Signed:   color = ImVec4(0.0f, 1.0f, 0.0f, 1.0f); text = "Signed"; break;
+                                        case SignatureStatus::Unsigned: color = ImVec4(1.0f, 0.0f, 0.0f, 1.0f); text = "Unsigned"; break;
+                                        case SignatureStatus::Cheat:    color = ImVec4(0.25f, 0.75f, 0.95f, 1.00f); text = "Cheat"; break;
+                                        default:                        color = ImVec4(0.8f, 0.5f, 0.1f, 1.0f); text = "Not Found"; break;
                                         }
                                         ImGui::TextColored(color, "%s", text);
 
@@ -1096,8 +1151,6 @@ int WINAPI WinMain
                     {
                         ImGui::Text("File: %s", selected.fileName.c_str());
                         ImGui::Text("Executable Path: %s", info.cachedUTF8Path.c_str());
-                        ImGui::Text("Version: %d", info.version);
-                        ImGui::Text("Signature: 0x%X", info.signature);
 
                         auto formatFileSize = [](uint64_t size) -> std::string {
                             constexpr const char* suffixes[] = { "B", "KB", "MB", "GB", "TB" };
@@ -1107,10 +1160,6 @@ int WINAPI WinMain
                             char buffer[64];
                             snprintf(buffer, sizeof(buffer), "%.2f %s", s, suffixes[i]);
                             return std::string(buffer);
-                            };
-
-                        auto showFileTime = [](const FILETIME* ft) -> std::string {
-                            return ft ? FileTimeToString(*ft) : "N/A";
                             };
 
                         char windowsPath[MAX_PATH] = { 0 };
@@ -1125,24 +1174,22 @@ int WINAPI WinMain
                                 pfSize.HighPart = pfInfo.nFileSizeHigh;
                                 pfSize.LowPart = pfInfo.nFileSizeLow;
 
+                                ImGui::Separator();
                                 ImGui::Text("Prefetch Size: %s", formatFileSize(pfSize.QuadPart).c_str());
                                 ImGui::Text("Prefetch Creation: %s", FileTimeToString(pfInfo.ftCreationTime).c_str());
-                                ImGui::Text("Prefetch Modified: %s", FileTimeToString(pfInfo.ftLastWriteTime).c_str());
                             }
                             else
                             {
                                 ImGui::Text("Prefetch Size: N/A");
                                 ImGui::Text("Prefetch Creation: N/A");
-                                ImGui::Text("Prefetch Modified: N/A");
                             }
                         }
                         else
                         {
-                            ImGui::Text("Prefetch Path: N/A");
                             ImGui::Text("Prefetch Size: N/A");
                             ImGui::Text("Prefetch Creation: N/A");
-                            ImGui::Text("Prefetch Modified: N/A");
                         }
+                        ImGui::Separator();
 
                         HANDLE hExe = CreateFileW(info.mainExecutablePath.c_str(),
                             GENERIC_READ,
@@ -1160,16 +1207,14 @@ int WINAPI WinMain
                             else
                                 ImGui::Text("Executable Size: N/A");
 
-                            FILETIME creationTime, lastAccessTime, lastWriteTime;
-                            if (GetFileTime(hExe, &creationTime, &lastAccessTime, &lastWriteTime))
+                            FILETIME creationTime;
+                            if (GetFileTime(hExe, &creationTime, nullptr, nullptr))
                             {
-                                ImGui::Text("Executable Creation: %s", showFileTime(&creationTime).c_str());
-                                ImGui::Text("Executable Modified: %s", showFileTime(&lastWriteTime).c_str());
+                                ImGui::Text("Executable Creation: %s", FileTimeToString(creationTime).c_str());
                             }
                             else
                             {
                                 ImGui::Text("Executable Creation: N/A");
-                                ImGui::Text("Executable Modified: N/A");
                             }
 
                             CloseHandle(hExe);
@@ -1178,7 +1223,6 @@ int WINAPI WinMain
                         {
                             ImGui::Text("Executable Size: N/A");
                             ImGui::Text("Executable Creation: N/A");
-                            ImGui::Text("Executable Modified: N/A");
                         }
 
                         ImGui::EndTabItem();
@@ -1188,13 +1232,16 @@ int WINAPI WinMain
                     {
                         if (!info.lastExecutionTimes.empty())
                         {
+                            int runNumber = 1;
                             for (const auto& t : info.lastExecutionTimes)
                             {
                                 struct tm tmBuf;
                                 localtime_s(&tmBuf, &t);
                                 char buffer[64];
                                 strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", &tmBuf);
-                                ImGui::TextUnformatted(buffer);
+
+                                ImGui::Text("%s %s", ("Run " + std::to_string(runNumber) + ":").c_str(), buffer);
+                                runNumber++;
                             }
                         }
                         else

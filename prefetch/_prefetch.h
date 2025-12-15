@@ -54,6 +54,12 @@ inline std::string WStringToUTF8(const std::wstring& wstr)
 
     if (converted <= 0) return {};
 
+    std::transform(result.begin(), result.end(), result.begin(), ::tolower);
+
+    if (!result.empty() && result[0] >= 'a' && result[0] <= 'z') {
+        result[0] = result[0] - 'a' + 'A';
+    }
+
     return result;
 }
 

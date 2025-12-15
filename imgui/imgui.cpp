@@ -1,3 +1,8 @@
+#include <cstdint>
+#include <climits>
+#include <limits.h>
+
+
 // dear imgui, v1.92.4
 // (main code and documentation)
 
@@ -2194,6 +2199,7 @@ const char* ImStrSkipBlank(const char* str)
 #else
 #include "stb_sprintf.h"
 #endif
+#include <limits.h>
 #endif // #ifdef IMGUI_USE_STB_SPRINTF
 
 #if defined(_MSC_VER) && !defined(vsnprintf)

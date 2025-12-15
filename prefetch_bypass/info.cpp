@@ -1,0 +1,16 @@
+﻿#include "info/_events_fileinfo.hpp"
+#include "info/_sechost_sysmain.h"
+#include "info/_attributes_prefetch.hpp"
+#include "info/_fileinfo.hpp"
+#include "info/_hash_prefetch.h"
+#include "info/_registry_prefetch.hh"
+
+void InfoCmd_UIPREFETCHVIEW()
+{
+    RegistryPrefetchParameters();
+    PrefetchAttributesSpecials();
+    DetectDuplicatePrefetchByHash();
+    SysmainThreadSechost();
+    FileInfoStatus();
+    FileInfoEvents();
+}

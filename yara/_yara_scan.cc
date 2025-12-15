@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include <string>
 #include <vector>
 #include <cstdio>
@@ -97,8 +97,28 @@ rule CHEAT {
           $t = "Sapphire LITE Clicker" nocase ascii wide
           $w = "dream-injector" nocase ascii wide
           $x = "Exodus.codes" nocase ascii wide
+          $y = "slinky.gg" nocase ascii wide
+          $z = "[!] Failed to find Vape jar" nocase ascii wide
+          $aa = "Vape Launcher" nocase ascii wide
+          $ab = "C:\\Users\\PC\\Desktop\\Cleaner-main\\obj\\x64\\Release\\WindowsFormsApp3.pdb" nocase ascii wide
+          $ac = "String Cleaner" nocase ascii wide
+          $ad = "Open Minecraft, then try again." nocase ascii wide
+          $af = "PE Injector" nocase ascii wide
+          $ah = "starlight v1.0" nocase ascii wide
+          $ai = "Striker.exe" nocase ascii wide
+          $aj = "Monolith Lite" nocase ascii wide
+          $ak = "B.fagg0t0" nocase ascii wide
+          $al = "B.fag0" nocase ascii wide
+          $an = "C:\\Users\\Daniel\\Desktop\\client-top\\x64\\Release\\top-external.pdb" nocase ascii wide
+          $ao = "C:\\Users\\Daniel\\Desktop\\client-top\\x64\\Release\\top-internal.pdb" nocase ascii wide
+          $ap = "UNICORN CLIENT" nocase ascii wide
+          $aq = "Adding delay to Minecraft" nocase ascii wide
+          $ar = "rightClickChk.BackgroundImage" nocase ascii wide
+          $as = "UwU Client" nocase ascii wide
+          $at = "lithiumclient.wtf" nocase ascii wide
+
     condition:
-        any of them
+       any of them
 }
 )");
 }
