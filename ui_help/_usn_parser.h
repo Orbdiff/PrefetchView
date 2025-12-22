@@ -1,11 +1,11 @@
-#pragma once
+﻿#pragma once
 
 #include <Windows.h>
 #include <winioctl.h>
 #include <string>
 #include <vector>
 #include <unordered_map>
-#include <chrono>
+#include <unordered_set>
 #include <cwctype>
 #include "_time_utils.h"
 
@@ -16,6 +16,8 @@ public:
         std::string filenameNew;
         std::string action;
         time_t timestamp;
+
+        bool isPrefetchDir = false;
     };
 
     explicit USNJournalReader(const std::wstring& volumeLetter)
@@ -40,7 +42,41 @@ private:
     HANDLE volumeHandle_ = INVALID_HANDLE_VALUE;
     BYTE* buffer_ = nullptr;
     USN_JOURNAL_DATA_V0 journalData_{};
+
+    std::unordered_set<ULONGLONG> trackedPrefetchFRN_;
     std::unordered_map<ULONGLONG, RenameInfo> renameCache_;
+
+    static bool EndsWithPf(const std::wstring& name)
+    {
+        if (name.size() < 3) return false;
+        std::wstring ext = name.substr(name.size() - 3);
+        for (auto& c : ext) c = std::towlower(c);
+        return ext == L".pf";
+    }
+
+    static bool IsExactPrefetchDir(const std::wstring& name)
+    {
+        std::wstring lower = name;
+        for (auto& c : lower) c = std::towlower(c);
+        return lower == L"prefetch";
+    }
+
+    static std::string WStringToUTF8(const std::wstring& wstr)
+    {
+        if (wstr.empty()) return {};
+        int sizeNeeded = WideCharToMultiByte(
+            CP_UTF8, 0,
+            wstr.c_str(), (int)wstr.size(),
+            nullptr, 0, nullptr, nullptr);
+
+        std::string result(sizeNeeded, 0);
+        WideCharToMultiByte(
+            CP_UTF8, 0,
+            wstr.c_str(), (int)wstr.size(),
+            &result[0], sizeNeeded, nullptr, nullptr);
+
+        return result;
+    }
 
     bool Dump(std::vector<USNEvent>& results)
     {
@@ -48,9 +84,9 @@ private:
         if (!QueryJournal()) { CloseVolume(); return false; }
         if (!AllocateBuffer()) { CloseVolume(); return false; }
 
-        bool result = ReadJournal(results);
+        bool ok = ReadJournal(results);
         Cleanup();
-        return result;
+        return ok;
     }
 
     bool OpenVolume()
@@ -82,17 +118,13 @@ private:
 
     bool AllocateBuffer()
     {
-        const DWORD bufferSize = 32 * 1024 * 1024; // 32 MB
-        buffer_ = (BYTE*)VirtualAlloc(nullptr, bufferSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
-        return buffer_ != nullptr;
-    }
+        buffer_ = (BYTE*)VirtualAlloc(
+            nullptr,
+            32 * 1024 * 1024, // 32 MB
+            MEM_COMMIT | MEM_RESERVE,
+            PAGE_READWRITE);
 
-    static bool EndsWithPf(const std::wstring& name)
-    {
-        if (name.size() < 3) return false;
-        std::wstring ext = name.substr(name.size() - 3);
-        for (auto& c : ext) c = std::towlower(c);
-        return ext == L".pf";
+        return buffer_ != nullptr;
     }
 
     bool ReadJournal(std::vector<USNEvent>& results)
@@ -102,71 +134,113 @@ private:
         readData.ReasonMask = 0xFFFFFFFF;
         readData.UsnJournalID = journalData_.UsnJournalID;
 
-        const DWORD bufferSize = 32 * 1024 * 1024;
         DWORD bytesReturned = 0;
-
         time_t logonTime = GetCurrentUserLogonTime();
 
         while (DeviceIoControl(
             volumeHandle_,
             FSCTL_READ_USN_JOURNAL,
             &readData, sizeof(readData),
-            buffer_, bufferSize,
+            buffer_, 32 * 1024 * 1024,
             &bytesReturned,
             nullptr))
         {
-            if (bytesReturned <= sizeof(USN)) break;
+            if (bytesReturned <= sizeof(USN))
+                break;
 
             BYTE* ptr = buffer_ + sizeof(USN);
             BYTE* end = buffer_ + bytesReturned;
 
             while (ptr < end)
             {
-                USN_RECORD_V2* rec = reinterpret_cast<USN_RECORD_V2*>(ptr);
+                auto* rec = reinterpret_cast<USN_RECORD_V2*>(ptr);
                 if (rec->RecordLength == 0) break;
 
-                std::wstring filename(rec->FileName, rec->FileNameLength / sizeof(WCHAR));
+                std::wstring filename(
+                    rec->FileName,
+                    rec->FileNameLength / sizeof(WCHAR));
+
                 FILETIME ft;
                 ft.dwLowDateTime = rec->TimeStamp.LowPart;
                 ft.dwHighDateTime = rec->TimeStamp.HighPart;
                 time_t usnTime = FileTimeToTimeT(ft);
 
-                if (usnTime > logonTime)
+                if (usnTime <= logonTime)
                 {
-                    ULONGLONG fileRef = rec->FileReferenceNumber;
+                    ptr += rec->RecordLength;
+                    continue;
+                }
 
-                    if (rec->Reason & USN_REASON_RENAME_OLD_NAME)
+                ULONGLONG frn = rec->FileReferenceNumber;
+
+                if (IsExactPrefetchDir(filename))
+                {
+                    trackedPrefetchFRN_.insert(frn);
+                }
+
+                bool isPrefetchDir = trackedPrefetchFRN_.count(frn) != 0;
+                bool isPfFile = EndsWithPf(filename);
+
+                if (rec->Reason & USN_REASON_RENAME_OLD_NAME)
+                {
+                    renameCache_[frn] = {
+                        WStringToUTF8(filename),
+                        usnTime
+                    };
+                }
+
+                else if (rec->Reason & USN_REASON_RENAME_NEW_NAME)
+                {
+                    auto it = renameCache_.find(frn);
+                    if (it != renameCache_.end())
                     {
-                        renameCache_[fileRef] = { WStringToUTF8(filename), usnTime };
-                    }
-                    else if (rec->Reason & USN_REASON_RENAME_NEW_NAME)
-                    {
-                        auto it = renameCache_.find(fileRef);
-                        if (it != renameCache_.end())
-                        {
-                            if (EndsWithPf(std::wstring(it->second.oldName.begin(), it->second.oldName.end())))
-                            {
-                                results.push_back({
-                                    it->second.oldName,
-                                    WStringToUTF8(filename),
-                                    "Renamed",
-                                    usnTime
-                                    });
-                            }
-                            renameCache_.erase(it);
-                        }
-                    }
-                    else if (rec->Reason & USN_REASON_FILE_DELETE)
-                    {
-                        if (EndsWithPf(filename))
+                        if (isPrefetchDir)
                         {
                             results.push_back({
+                                it->second.oldName,
                                 WStringToUTF8(filename),
-                                "",
-                                "Deleted",
-                                usnTime
+                                "Prefetch Directory Rename",
+                                usnTime,
+                                true
                                 });
                         }
+                        else if (EndsWithPf(
+                            std::wstring(it->second.oldName.begin(),
+                                it->second.oldName.end())))
+                        {
+                            results.push_back({
+                                it->second.oldName,
+                                WStringToUTF8(filename),
+                                "Renamed",
+                                usnTime,
+                                false
+                                });
+                        }
+
+                        renameCache_.erase(it);
+                    }
+                }
+                else if (rec->Reason & USN_REASON_FILE_DELETE)
+                {
+                    if (isPrefetchDir)
+                    {
+                        results.push_back({
+                            WStringToUTF8(filename),
+                            "",
+                            "Prefetch Directory Delete",
+                            usnTime,
+                            true
+                            });
+                    }
+                    else if (isPfFile)
+                    {
+                        results.push_back({
+                            WStringToUTF8(filename),
+                            "",
+                            "Deleted",
+                            usnTime,
+                            false
+                            });
                     }
                 }
 
@@ -181,18 +255,15 @@ private:
 
     void Cleanup()
     {
-        FreeBuffer();
-        CloseVolume();
-        renameCache_.clear();
-    }
-
-    void FreeBuffer()
-    {
         if (buffer_)
         {
             VirtualFree(buffer_, 0, MEM_RELEASE);
             buffer_ = nullptr;
         }
+
+        CloseVolume();
+        renameCache_.clear();
+        trackedPrefetchFRN_.clear();
     }
 
     void CloseVolume()
@@ -202,14 +273,5 @@ private:
             CloseHandle(volumeHandle_);
             volumeHandle_ = INVALID_HANDLE_VALUE;
         }
-    }
-
-    static std::string WStringToUTF8(const std::wstring& wstr)
-    {
-        if (wstr.empty()) return {};
-        int sizeNeeded = WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), (int)wstr.size(), nullptr, 0, nullptr, nullptr);
-        std::string result(sizeNeeded, 0);
-        WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), (int)wstr.size(), &result[0], sizeNeeded, nullptr, nullptr);
-        return result;
     }
 };

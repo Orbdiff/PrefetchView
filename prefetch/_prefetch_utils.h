@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include <string>
 #include <vector>
@@ -45,7 +45,8 @@ std::wstring FindExecutablePath(const std::wstring& exeName, const std::vector<s
         for (size_t i = 0; i < len; ++i) {
             if (exeNorm[i] == fileNorm[i]) {
                 ++score;
-            } else {
+            }
+            else {
                 break;
             }
         }
@@ -58,6 +59,10 @@ std::wstring FindExecutablePath(const std::wstring& exeName, const std::vector<s
             bestScore = score;
             bestMatch = fullPath;
         }
+    }
+
+    if (bestMatch.empty() || bestScore == 0) {
+        return L"No path found...";
     }
 
     return bestMatch;

@@ -2,13 +2,13 @@
 #include <wincrypt.h>
 #include <filesystem>
 #include <fstream>
-#include <iostream>
 #include <unordered_map>
 #include <vector>
 #include <sstream>
 #include <iomanip>
+#include <string>
 
-inline void DetectDuplicatePrefetchByHash()
+inline void DetectDuplicatePrefetchByHash(std::wstringstream& out)
 {
     const std::filesystem::path prefetchPath = L"C:\\Windows\\Prefetch";
     std::unordered_map<std::string, std::vector<std::wstring>> hashMap;
@@ -67,49 +67,42 @@ inline void DetectDuplicatePrefetchByHash()
             CryptGetHashParam(hHash, HP_HASHVAL, hash, &hashSize, 0))
         {
             std::ostringstream oss;
-            for (DWORD i = 0; i < hashSize; i++)
+            for (DWORD i = 0; i < hashSize; ++i)
             {
                 oss << std::hex << std::uppercase
                     << std::setw(2) << std::setfill('0')
                     << static_cast<int>(hash[i]);
             }
 
-            hashMap[oss.str()].push_back(entry.path().filename().wstring());
+            hashMap[oss.str()].push_back(
+                entry.path().filename().wstring());
         }
 
         CryptDestroyHash(hHash);
         CryptReleaseContext(hProv, 0);
     }
 
-    HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-    const WORD blueColor = FOREGROUND_BLUE | FOREGROUND_INTENSITY;
-    const WORD yellowColor = FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_INTENSITY;
-    const WORD whiteColor = FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE;
+    out << L"\n[/] Duplicate Hash Prefetch\n";
 
-    std::wcout << L"\n============================\n";
-    SetConsoleTextAttribute(hConsole, blueColor);
-    std::wcout << L"\n[/] Duplicate Hash Prefetch\n";
-
-    for (const auto& [hash, files] : hashMap)
+    for (const auto& pair : hashMap)
     {
+        const std::string& hash = pair.first;
+        const std::vector<std::wstring>& files = pair.second;
+
         if (files.size() > 1)
         {
             duplicatesFound = true;
 
-            SetConsoleTextAttribute(hConsole, yellowColor);
-            std::cout << "\nHASH: " << hash << "\n\n";
+            out << L"\n[#] HASH: "
+                << std::wstring(hash.begin(), hash.end()) << L"\n\n";
 
-            SetConsoleTextAttribute(hConsole, whiteColor);
             for (const auto& file : files)
-                std::wcout << L"  " << file << L"\n";
+                out << L"  " << file << L"\n";
         }
     }
 
     if (!duplicatesFound)
     {
-        SetConsoleTextAttribute(hConsole, whiteColor);
-        std::wcout << L"\n[+] No duplicated Prefetch files were found.\n\n";
+        out << L"\n[+] No duplicated Prefetch files were found.\n\n";
     }
-
-    SetConsoleTextAttribute(hConsole, whiteColor);
 }

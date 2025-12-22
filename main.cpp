@@ -299,6 +299,61 @@ std::string FileTimeToString(const FILETIME& ft)
     return ss.str();
 }
 
+static ImVec4 GetLineColor(const std::wstring& line)
+{
+    if (line.find(L"[SERVICE]") != std::wstring::npos)
+    {
+        if (line.find(L"Running") != std::wstring::npos)
+            return ImVec4(0.3f, 1.0f, 0.3f, 1.0f);
+
+        if (line.find(L"Stopped") != std::wstring::npos)
+            return ImVec4(1.0f, 0.2f, 0.2f, 1.0f);
+    }
+
+    if (line.find(L"[DRIVER]") != std::wstring::npos)
+    {
+        if (line.find(L"loaded") != std::wstring::npos &&
+            line.find(L"NOT") == std::wstring::npos)
+        {
+            return ImVec4(0.3f, 1.0f, 0.3f, 1.0f);
+        }
+
+        if (line.find(L"NOT loaded") != std::wstring::npos)
+            return ImVec4(1.0f, 0.2f, 0.2f, 1.0f);
+    }
+
+    if (line.find(L"[ERROR]") != std::wstring::npos)
+        return ImVec4(1.0f, 0.2f, 0.2f, 1.0f);
+
+    if (line.find(L"[+]") != std::wstring::npos)
+        return ImVec4(0.3f, 1.0f, 0.3f, 1.0f);
+
+    if (line.find(L"[/]") != std::wstring::npos)
+        return ImVec4(0.4f, 0.6f, 1.0f, 1.0f);
+
+    if (line.find(L"[#]") != std::wstring::npos)
+        return ImVec4(1.0f, 0.85f, 0.2f, 1.0f);
+
+    if (line.find(L"[-]") != std::wstring::npos)
+        return ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
+
+    return ImVec4(0.85f, 0.85f, 0.85f, 1.0f);
+}
+
+static ImVec4 GetReasonColor(const USNJournalReader::USNEvent& e)
+{
+    if (e.isPrefetchDir)
+        return ImVec4(0.65f, 0.45f, 0.85f, 1.0f);
+
+    if (e.action.find("Delete") != std::string::npos)
+        return ImVec4(0.85f, 0.35f, 0.35f, 1.0f);
+
+    if (e.action.find("Rename") != std::string::npos)
+        return ImVec4(0.85f, 0.75f, 0.35f, 1.0f);
+
+    return ImVec4(0.75f, 0.75f, 0.75f, 1.0f);
+}
+
 int WINAPI WinMain
 (
     _In_ HINSTANCE hInstance,
@@ -546,35 +601,103 @@ int WINAPI WinMain
             float buttonWidth = 160.0f;
             float windowRight = ImGui::GetWindowContentRegionMax().x + ImGui::GetWindowPos().x;
             static bool showPrefetchPopup = false;
+            static bool showPrefetchInfoPopup = false;
+            static bool isReadingPrefetch = false;
+            static std::wstring prefetchOutput;
+            static float prefetchPopupInfoAlpha = 0.0f;
+
 
             ImGui::SetCursorPosX(windowRight - 3 * buttonWidth - ImGui::GetStyle().ItemSpacing.x * 3);
             if (ImGui::Button("Prefetch Info", ImVec2(buttonWidth, 0)))
             {
-                std::thread([]() {
-                    if (AllocConsole())
+                showPrefetchInfoPopup = true;
+                isReadingPrefetch = true;
+                prefetchPopupInfoAlpha = 0.0f;
+                prefetchOutput.clear();
+
+                std::thread([]()
                     {
-                        FILE* fpOut = freopen("CONOUT$", "w", stdout);
-                        FILE* fpIn = freopen("CONIN$", "r", stdin);
-
-                        if (!fpOut || !fpIn)
-                        {
-                            MessageBoxA(nullptr, "Failed to redirect console I/O", "Error", MB_ICONERROR);
-                        }
-                        else
-                        {
-                            InfoCmd_UIPREFETCHVIEW();
-                        }
-
-                        FreeConsole();
-                    }
+                        std::wstring result = InfoCmd_UIPREFETCHVIEW();
+                        ImGui::GetIO().UserData = new std::wstring(std::move(result));
                     }).detach();
             }
 
             if (ImGui::IsItemHovered())
             {
-                ImGui::SetTooltip("Open a CMD and checks multiple bypass attempts");
+                ImGui::SetTooltip("Analyze Prefetch, SysMain, FileInfo and Registry state");
             }
 
+            if (showPrefetchInfoPopup)
+                ImGui::OpenPopup("Prefetch Info");
+
+            if (prefetchPopupInfoAlpha < 1.0f)
+                prefetchPopupInfoAlpha += ImGui::GetIO().DeltaTime * 4.0f;
+
+            prefetchPopupInfoAlpha = std::min(prefetchPopupInfoAlpha, 1.0f);
+
+            ImGui::PushStyleVar(ImGuiStyleVar_Alpha, prefetchPopupInfoAlpha);
+
+            ImVec2 popupSize(950, 600);
+            if (ImGui::BeginPopupModal("Prefetch Info", &showPrefetchInfoPopup, ImGuiWindowFlags_NoCollapse))
+            {
+                ImGui::SetWindowSize(popupSize, ImGuiCond_Once);
+
+                if (isReadingPrefetch)
+                {
+                    auto ptr = static_cast<std::wstring*>(ImGui::GetIO().UserData);
+                    if (ptr)
+                    {
+                        prefetchOutput = std::move(*ptr);
+                        delete ptr;
+                        ImGui::GetIO().UserData = nullptr;
+                        isReadingPrefetch = false;
+                    }
+                }
+
+                ImVec2 winSize = ImGui::GetWindowSize();
+
+                if (isReadingPrefetch)
+                {
+                    ImGui::Dummy(ImVec2(0, winSize.y * 0.4f));
+                    ImGui::SetCursorPosX(
+                        (winSize.x - ImGui::CalcTextSize("Analyzing Prefetch Info...").x) * 0.5f
+                    );
+                    ImGui::TextColored(
+                        ImVec4(0.6f, 0.6f, 0.6f, 1.0f),
+                        "Analyzing Prefetch Info..."
+                    );
+                }
+                else if (prefetchOutput.empty())
+                {
+                    ImGui::Dummy(ImVec2(0, winSize.y * 0.4f));
+                    ImGui::SetCursorPosX(
+                        (winSize.x - ImGui::CalcTextSize("No information available.").x) * 0.5f
+                    );
+                    ImGui::TextColored(
+                        ImVec4(0.8f, 0.5f, 0.5f, 1.0f),
+                        "No information available."
+                    );
+                }
+                else
+                {
+                    ImGui::BeginChild("PrefetchInfoScroll", ImVec2(0, 0), true);
+
+                    std::wstringstream ss(prefetchOutput);
+                    std::wstring line;
+
+                    while (std::getline(ss, line))
+                    {
+                        ImVec4 color = GetLineColor(line);
+                        ImGui::TextColored(color, "%ls", line.c_str());
+                    }
+
+                    ImGui::EndChild();
+                }
+
+                ImGui::EndPopup();
+            }
+
+            ImGui::PopStyleVar();
             ImGui::SameLine();
 
             static bool showSysMainPopup = false;
@@ -598,7 +721,7 @@ int WINAPI WinMain
 
             if (ImGui::IsItemHovered())
             {
-                ImGui::SetTooltip("Information about Sysmain time");
+                ImGui::SetTooltip("Information about Sysmain Service");
             }
 
             ImGui::SameLine();
@@ -716,26 +839,32 @@ int WINAPI WinMain
 
                 if (isReadingUSN)
                 {
-                    ImGui::Dummy(ImVec2(0, winSize.y * 0.35f));
+                    ImGui::Dummy(ImVec2(0, winSize.y * 0.40f));
                     ImGui::SetCursorPosX((winSize.x - ImGui::CalcTextSize("Reading USN Journal...").x) * 0.5f);
+
                     ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "Reading USN Journal...");
                 }
                 else if (usnResults.empty())
                 {
-                    ImGui::Dummy(ImVec2(0, winSize.y * 0.35f));
-                    ImGui::SetCursorPosX((winSize.x - ImGui::CalcTextSize("No .pf deleted or renamed entries found after logon.").x) * 0.5f);
-                    ImGui::TextColored(ImVec4(0.8f, 0.5f, 0.5f, 1.0f), "No .pf deleted or renamed entries found after logon.");
+                    ImGui::Dummy(ImVec2(0, winSize.y * 0.38f));
+                    ImGui::SetCursorPosX(
+                        (winSize.x - ImGui::CalcTextSize(
+                            "No Prefetch or .pf activity detected after logon.").x) * 0.5f);
+
+                    ImGui::TextColored(
+                        ImVec4(0.75f, 0.45f, 0.45f, 1.0f),
+                        "No Prefetch or .pf activity detected after logon.");
                 }
                 else
                 {
-                    if (ImGui::BeginTable("USNTable", 4,
+                    if (ImGui::BeginTable("USNTable",4,
                         ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable,
-                        ImVec2(-FLT_MIN, -FLT_MIN)))
+                        ImVec2(0, -1)))
                     {
                         ImGui::TableSetupScrollFreeze(0, 1);
                         ImGui::TableSetupColumn("Old Name", ImGuiTableColumnFlags_WidthStretch);
                         ImGui::TableSetupColumn("New Name", ImGuiTableColumnFlags_WidthStretch);
-                        ImGui::TableSetupColumn("Reason", ImGuiTableColumnFlags_WidthFixed, 120.0f);
+                        ImGui::TableSetupColumn("Reason", ImGuiTableColumnFlags_WidthFixed, 160.0f);
                         ImGui::TableSetupColumn("Timestamp", ImGuiTableColumnFlags_WidthFixed, 180.0f);
                         ImGui::TableHeadersRow();
 
@@ -743,17 +872,21 @@ int WINAPI WinMain
                         {
                             const auto& e = *it;
                             ImGui::TableNextRow();
+
                             ImGui::TableSetColumnIndex(0);
                             ImGui::TextUnformatted(e.filenameOld.c_str());
+
                             ImGui::TableSetColumnIndex(1);
                             ImGui::TextUnformatted(e.filenameNew.empty() ? "-" : e.filenameNew.c_str());
-                            ImGui::TableSetColumnIndex(2);
-                            ImGui::TextUnformatted(e.action.c_str());
-                            ImGui::TableSetColumnIndex(3);
 
+                            ImGui::TableSetColumnIndex(2);
+                            ImVec4 reasonColor = GetReasonColor(e);
+                            ImGui::TextColored(reasonColor, "%s", e.action.c_str());
+
+                            ImGui::TableSetColumnIndex(3);
                             std::tm* tm = std::localtime(&e.timestamp);
-                            char timeBuf[32];
-                            std::strftime(timeBuf, sizeof(timeBuf), "%Y-%m-%d %H:%M:%S", tm);
+                            char timeBuf[32]{};
+                            std::strftime(timeBuf, sizeof(timeBuf),"%Y-%m-%d %H:%M:%S", tm);
                             ImGui::TextUnformatted(timeBuf);
                         }
 
@@ -764,7 +897,6 @@ int WINAPI WinMain
                 ImGui::EndPopup();
             }
             ImGui::PopStyleVar();
-
 
             if (checkboxChanged)
             {

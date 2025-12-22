@@ -1,7 +1,7 @@
 ﻿#include <windows.h>
 #include <tlhelp32.h>
 #include <winternl.h>
-#include <iostream>
+#include <sstream>
 
 #ifndef ThreadQuerySetWin32StartAddress
 #define ThreadQuerySetWin32StartAddress (THREADINFOCLASS)9
@@ -23,23 +23,21 @@ struct SechostMainThreadInfo
     bool isActive = false;
 };
 
-inline void SysmainThreadSechost()
+inline void SysmainThreadSechost(std::wstringstream& out)
 {
-    std::cout << "\n============================\n\n";
-
     SechostMainThreadInfo info{};
 
     SC_HANDLE scm = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT);
     if (!scm)
     {
-        std::cout << "[!] OpenSCManager failed\n";
+        out << L"[ERROR] OpenSCManager failed\n";
         return;
     }
 
     SC_HANDLE svc = OpenServiceW(scm, L"SysMain", SERVICE_QUERY_STATUS);
     if (!svc)
     {
-        std::cout << "[!] SysMain not found\n";
+        out << L"[ERROR] SysMain service not found\n";
         CloseServiceHandle(scm);
         return;
     }
@@ -50,12 +48,12 @@ inline void SysmainThreadSechost()
     if (!QueryServiceStatusEx(
         svc,
         SC_STATUS_PROCESS_INFO,
-        (LPBYTE)&ssp,
+        reinterpret_cast<LPBYTE>(&ssp),
         sizeof(ssp),
         &needed) ||
         ssp.dwCurrentState != SERVICE_RUNNING)
     {
-        std::cout << "[!] SysMain not running\n";
+        out << L"[ERROR] SysMain service is not running\n";
         CloseServiceHandle(svc);
         CloseServiceHandle(scm);
         return;
@@ -67,18 +65,16 @@ inline void SysmainThreadSechost()
 
     HANDLE modSnap = CreateToolhelp32Snapshot(
         TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32,
-        info.pid
-    );
+        info.pid);
 
     if (modSnap == INVALID_HANDLE_VALUE)
     {
-        std::cout << "[!] Module snapshot failed\n";
+        out << L"[ERROR] Module snapshot failed\n";
         return;
     }
 
     MODULEENTRY32W me{};
     me.dwSize = sizeof(me);
-
     bool foundSechost = false;
 
     if (Module32FirstW(modSnap, &me))
@@ -87,7 +83,7 @@ inline void SysmainThreadSechost()
         {
             if (!_wcsicmp(me.szModule, L"sechost.dll"))
             {
-                info.sechostBase = (uintptr_t)me.modBaseAddr;
+                info.sechostBase = reinterpret_cast<uintptr_t>(me.modBaseAddr);
                 info.sechostEnd = info.sechostBase + me.modBaseSize;
                 foundSechost = true;
                 break;
@@ -99,32 +95,31 @@ inline void SysmainThreadSechost()
 
     if (!foundSechost)
     {
-        std::cout << "[!] sechost.dll not found\n";
+        out << L"[ERROR] sechost.dll not found in SysMain process\n";
         return;
     }
 
     HMODULE hNtdll = GetModuleHandleW(L"ntdll.dll");
     if (!hNtdll)
     {
-        std::cout << "[!] ntdll.dll not loaded\n";
+        out << L"[ERROR] ntdll.dll not loaded\n";
         return;
     }
 
     auto NtQueryInformationThread =
         reinterpret_cast<NtQueryInformationThread_t>(
-            GetProcAddress(hNtdll, "NtQueryInformationThread")
-            );
+            GetProcAddress(hNtdll, "NtQueryInformationThread"));
 
     if (!NtQueryInformationThread)
     {
-        std::cout << "[!] NtQueryInformationThread not found\n";
+        out << L"[ERROR] NtQueryInformationThread not found\n";
         return;
     }
 
     HANDLE thSnap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
     if (thSnap == INVALID_HANDLE_VALUE)
     {
-        std::cout << "[!] Thread snapshot failed\n";
+        out << L"[ERROR] Thread snapshot failed\n";
         return;
     }
 
@@ -142,8 +137,7 @@ inline void SysmainThreadSechost()
             HANDLE hThread = OpenThread(
                 THREAD_QUERY_INFORMATION,
                 FALSE,
-                te.th32ThreadID
-            );
+                te.th32ThreadID);
 
             if (!hThread)
                 continue;
@@ -158,7 +152,7 @@ inline void SysmainThreadSechost()
                     sizeof(startAddr),
                     nullptr)))
             {
-                uintptr_t addr = (uintptr_t)startAddr;
+                uintptr_t addr = reinterpret_cast<uintptr_t>(startAddr);
 
                 if (addr >= info.sechostBase && addr < info.sechostEnd)
                 {
@@ -183,33 +177,25 @@ inline void SysmainThreadSechost()
 
     if (!info.targetTID)
     {
-        std::cout << "[!] No sechost.dll threads found\n";
+        out << L"[ERROR] No sechost.dll threads found\n";
         return;
     }
 
     HANDLE hThread = OpenThread(
         THREAD_QUERY_INFORMATION,
         FALSE,
-        info.targetTID
-    );
+        info.targetTID);
 
     if (!hThread)
     {
-        std::cout << "[!] Failed to open target thread\n";
+        out << L"[ERROR] Failed to open target thread\n";
         return;
     }
 
-    HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-    const WORD greenColor = FOREGROUND_GREEN | FOREGROUND_INTENSITY;
-    const WORD redColor = FOREGROUND_RED | FOREGROUND_INTENSITY;
-    const WORD whiteColor = FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE;
-
-    SetConsoleTextAttribute(hConsole, greenColor);
-    std::cout << "[+] Monitoring sechost.dll main thread\n";
-    SetConsoleTextAttribute(hConsole, whiteColor);
-    std::cout << "    PID: " << info.pid << "\n";
-    std::cout << "    TID: " << info.targetTID << "\n";
-    std::cout << "    Initial cycles: " << info.initialCycles << "\n";
+    out << L"\n[+] Monitoring sechost.dll main thread\n";
+    out << L"    PID             : " << info.pid << L"\n";
+    out << L"    TID             : " << info.targetTID << L"\n";
+    out << L"    Initial cycles  : " << info.initialCycles << L"\n";
 
     Sleep(10000);
 
@@ -218,14 +204,12 @@ inline void SysmainThreadSechost()
     info.deltaCycles = info.finalCycles - info.initialCycles;
     info.isActive = (info.deltaCycles > 0);
 
-    std::cout << "    Final cycles: " << info.finalCycles << "\n";
-    std::cout << "    Delta: " << info.deltaCycles << "\n";
-    std::cout << "    State: " << (info.isActive ? "Active" : "Suspended") << "\n";
+    out << L"    Final cycles    : " << info.finalCycles << L"\n";
+    out << L"    Delta cycles    : " << info.deltaCycles << L"\n";
+    out << L"    State           : "
+        << (info.isActive ? L"Active" : L"Suspended") << L"\n\n";
 
-    SetConsoleTextAttribute(hConsole, redColor);
-    std::cout << "\n[!] This detection is based on thread cycle delta, for additional assurance check manually in system informer sysmain threads\n";
-
-    SetConsoleTextAttribute(hConsole, whiteColor);
+    out << L"Note: Detection is based on thread cycle delta, for higher confidence, verify manually using System Informer.\n";
 
     CloseHandle(hThread);
 }

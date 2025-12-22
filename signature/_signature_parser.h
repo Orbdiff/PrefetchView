@@ -219,6 +219,10 @@ SignatureStatus GetSignatureStatus(const std::wstring& path)
 
                 static constexpr std::wstring_view cheatSigners[] = {
                     L"MANTHE INDUSTRIES, LLC",
+                    L"AMSTION LIMITED"
+                    L"SLINKWARE",
+                    L"NEWFAKECO",
+                    L"FAKED SIGNATURES INC"
                 };
 
                 for (const auto& bad : cheatSigners)

@@ -4,13 +4,19 @@
 #include "info/_fileinfo.hpp"
 #include "info/_hash_prefetch.h"
 #include "info/_registry_prefetch.hh"
+#include <sstream>
+#include <string>
 
-void InfoCmd_UIPREFETCHVIEW()
+std::wstring InfoCmd_UIPREFETCHVIEW()
 {
-    RegistryPrefetchParameters();
-    PrefetchAttributesSpecials();
-    DetectDuplicatePrefetchByHash();
-    SysmainThreadSechost();
-    FileInfoStatus();
-    FileInfoEvents();
+    std::wstringstream out;
+
+    RegistryPrefetchParameters(out);
+    PrefetchAttributesSpecials(out);
+    DetectDuplicatePrefetchByHash(out);
+    SysmainThreadSechost(out);
+    FileInfoStatus(out);
+    FileInfoEvents(out);
+
+    return out.str();
 }

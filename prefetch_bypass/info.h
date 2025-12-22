@@ -1,3 +1,3 @@
 #pragma once
 
-void InfoCmd_UIPREFETCHVIEW();
+std::wstring InfoCmd_UIPREFETCHVIEW();

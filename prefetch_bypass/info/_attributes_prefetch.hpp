@@ -1,5 +1,5 @@
 #include <windows.h>
-#include <iostream>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -18,7 +18,7 @@ struct PrefetchAttributes
     }
 };
 
-inline void PrefetchAttributesSpecials()
+inline void PrefetchAttributesSpecials(std::wstringstream& out)
 {
     constexpr wchar_t PREFETCH_PATH[] = L"C:\\Windows\\Prefetch\\*.pf";
 
@@ -27,7 +27,7 @@ inline void PrefetchAttributesSpecials()
 
     if (hFind == INVALID_HANDLE_VALUE)
     {
-        std::wcerr << L"[!] Failed to open C:\\Windows\\Prefetch\n";
+        out << L"[ERROR] Failed to open C:\\Windows\\Prefetch\n";
         return;
     }
 
@@ -54,31 +54,18 @@ inline void PrefetchAttributesSpecials()
 
     FindClose(hFind);
 
-    HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-
-    const WORD blueColor = FOREGROUND_BLUE | FOREGROUND_INTENSITY;
-    const WORD purpleColor = FOREGROUND_RED | FOREGROUND_BLUE | FOREGROUND_INTENSITY;
-    const WORD whiteColor = FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE;
-
-    SetConsoleTextAttribute(hConsole, blueColor);
-    std::wcout << L"\n[/] Search prefetch files with attributes\n\n";
-
-    SetConsoleTextAttribute(hConsole, whiteColor);
-
-    for (const auto& entry : results)
-    {
-        SetConsoleTextAttribute(hConsole, purpleColor);
-        std::wcout << L"  " << entry.fileName;
-
-        SetConsoleTextAttribute(hConsole, whiteColor);
-        std::wcout << L"  ->  " << entry.ToString() << L"\n";
-    }
+    out << L"\n[/] Search prefetch files with attributes\n\n";
 
     if (results.empty())
     {
-        SetConsoleTextAttribute(hConsole, whiteColor);
-        std::wcout << L"[!] No prefetch files with attributes found\n";
+        out << L"[+] No prefetch files with attributes found\n";
+        return;
     }
 
-    SetConsoleTextAttribute(hConsole, whiteColor);
+    for (const auto& entry : results)
+    {
+        out << L"  " << entry.fileName
+            << L"  ->  " << entry.ToString()
+            << L"\n";
+    }
 }
