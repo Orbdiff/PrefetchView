@@ -576,12 +576,11 @@ int WINAPI WinMain
         {
             static float fadeAlpha = 0.0f;
             static float fadeSpeed = 2.0f;
-            static bool lastShowOnlyUnsigned = false;
-            static bool lastShowAfterLogon = false;
 
             static char searchBuffer[128] = "";
             static bool showOnlyUnsigned = false;
             static bool showAfterLogon = false;
+            static bool showNotFound = false;
 
             ImGui::PushItemWidth(300);
             ImGui::InputTextWithHint("##SearchPrefetch", "Search...", searchBuffer, IM_ARRAYSIZE(searchBuffer));
@@ -589,23 +588,30 @@ int WINAPI WinMain
 
             ImGui::SameLine(0, 20);
             bool checkboxChanged = false;
-            checkboxChanged |= ImGui::Checkbox("Only Unsigned", &showOnlyUnsigned);
+            checkboxChanged |= ImGui::Checkbox("Show Unsigned", &showOnlyUnsigned);
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("Show paths without a signature, cheat signature and yara rules");
+
             ImGui::SameLine(0, 20);
             checkboxChanged |= ImGui::Checkbox("Show in Instance", &showAfterLogon);
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("Show all paths after logon-time");
+
+            ImGui::SameLine(0, 20);
+            checkboxChanged |= ImGui::Checkbox("Show Not Found", &showNotFound);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Show paths with signature status NotFound");
+
             ImGui::SameLine();
 
             float buttonWidth = 160.0f;
             float windowRight = ImGui::GetWindowContentRegionMax().x + ImGui::GetWindowPos().x;
+
             static bool showPrefetchPopup = false;
             static bool showPrefetchInfoPopup = false;
             static bool isReadingPrefetch = false;
             static std::wstring prefetchOutput;
             static float prefetchPopupInfoAlpha = 0.0f;
-
 
             ImGui::SetCursorPosX(windowRight - 3 * buttonWidth - ImGui::GetStyle().ItemSpacing.x * 3);
             if (ImGui::Button("Prefetch Info", ImVec2(buttonWidth, 0)))
@@ -621,25 +627,17 @@ int WINAPI WinMain
                         ImGui::GetIO().UserData = new std::wstring(std::move(result));
                     }).detach();
             }
-
             if (ImGui::IsItemHovered())
-            {
                 ImGui::SetTooltip("Analyze Prefetch, SysMain, FileInfo and Registry state");
-            }
 
-            if (showPrefetchInfoPopup)
-                ImGui::OpenPopup("Prefetch Info");
-
-            if (prefetchPopupInfoAlpha < 1.0f)
-                prefetchPopupInfoAlpha += ImGui::GetIO().DeltaTime * 4.0f;
-
+            if (showPrefetchInfoPopup) ImGui::OpenPopup("Prefetch Info");
+            if (prefetchPopupInfoAlpha < 1.0f) prefetchPopupInfoAlpha += ImGui::GetIO().DeltaTime * 4.0f;
             prefetchPopupInfoAlpha = std::min(prefetchPopupInfoAlpha, 1.0f);
 
             ImGui::PushStyleVar(ImGuiStyleVar_Alpha, prefetchPopupInfoAlpha);
-
-            ImVec2 popupSize(950, 600);
             if (ImGui::BeginPopupModal("Prefetch Info", &showPrefetchInfoPopup, ImGuiWindowFlags_NoCollapse))
             {
+                ImVec2 popupSize(950, 600);
                 ImGui::SetWindowSize(popupSize, ImGuiCond_Once);
 
                 if (isReadingPrefetch)
@@ -659,44 +657,30 @@ int WINAPI WinMain
                 if (isReadingPrefetch)
                 {
                     ImGui::Dummy(ImVec2(0, winSize.y * 0.4f));
-                    ImGui::SetCursorPosX(
-                        (winSize.x - ImGui::CalcTextSize("Analyzing Prefetch Info...").x) * 0.5f
-                    );
-                    ImGui::TextColored(
-                        ImVec4(0.6f, 0.6f, 0.6f, 1.0f),
-                        "Analyzing Prefetch Info..."
-                    );
+                    ImGui::SetCursorPosX((winSize.x - ImGui::CalcTextSize("Analyzing Prefetch Info...").x) * 0.5f);
+                    ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "Analyzing Prefetch Info...");
                 }
                 else if (prefetchOutput.empty())
                 {
                     ImGui::Dummy(ImVec2(0, winSize.y * 0.4f));
-                    ImGui::SetCursorPosX(
-                        (winSize.x - ImGui::CalcTextSize("No information available.").x) * 0.5f
-                    );
-                    ImGui::TextColored(
-                        ImVec4(0.8f, 0.5f, 0.5f, 1.0f),
-                        "No information available."
-                    );
+                    ImGui::SetCursorPosX((winSize.x - ImGui::CalcTextSize("No information available.").x) * 0.5f);
+                    ImGui::TextColored(ImVec4(0.8f, 0.5f, 0.5f, 1.0f), "No information available.");
                 }
                 else
                 {
                     ImGui::BeginChild("PrefetchInfoScroll", ImVec2(0, 0), true);
-
                     std::wstringstream ss(prefetchOutput);
                     std::wstring line;
-
                     while (std::getline(ss, line))
                     {
                         ImVec4 color = GetLineColor(line);
                         ImGui::TextColored(color, "%ls", line.c_str());
                     }
-
                     ImGui::EndChild();
                 }
 
                 ImGui::EndPopup();
             }
-
             ImGui::PopStyleVar();
             ImGui::SameLine();
 
@@ -718,58 +702,18 @@ int WINAPI WinMain
                     ImGui::GetIO().UserData = new std::vector<ServiceInfo>(std::move(results));
                     }).detach();
             }
-
             if (ImGui::IsItemHovered())
-            {
                 ImGui::SetTooltip("Information about Sysmain Service");
-            }
-
-            ImGui::SameLine();
-
-            static bool showUSNPopup = false;
-            static bool isReadingUSN = false;
-            static std::vector<USNJournalReader::USNEvent> usnResults;
-            static float usnPopupAlpha = 0.0f;
-
-            ImGui::SetCursorPosX(windowRight - 1 * buttonWidth - ImGui::GetStyle().ItemSpacing.x * 1);
-            if (ImGui::Button("USNJournal", ImVec2(buttonWidth, 0)))
-            {
-                showUSNPopup = true;
-                isReadingUSN = true;
-                usnPopupAlpha = 0.0f;
-                usnResults.clear();
-
-                std::thread([]() {
-                    wchar_t windowsPath[MAX_PATH] = {};
-                    if (GetWindowsDirectoryW(windowsPath, MAX_PATH) != 0)
-                    {
-                        wchar_t driveLetter[3] = { windowsPath[0], L':', L'\0' };
-
-                        USNJournalReader reader(driveLetter);
-                        auto results = reader.Run();
-
-                        ImGui::GetIO().UserData = new std::vector<USNJournalReader::USNEvent>(std::move(results));
-                    }
-                    }).detach();
-            }
-
-            if (ImGui::IsItemHovered())
-            {
-                ImGui::SetTooltip("Displays deleted or renamed entries of pfs files");
-            }
 
             if (showSysMainPopup) ImGui::OpenPopup("SysMain Info");
-            if (showUSNPopup) ImGui::OpenPopup("USN Journal Results");
 
             if (sysmainPopupAlpha < 1.0f) sysmainPopupAlpha += ImGui::GetIO().DeltaTime * 4.0f;
             sysmainPopupAlpha = std::min(sysmainPopupAlpha, 1.0f);
-            if (usnPopupAlpha < 1.0f) usnPopupAlpha += ImGui::GetIO().DeltaTime * 4.0f;
-            usnPopupAlpha = std::min(usnPopupAlpha, 1.0f);
 
             ImGui::PushStyleVar(ImGuiStyleVar_Alpha, sysmainPopupAlpha);
-            ImVec2 popupSizeSysMain(400, 200);
             if (ImGui::BeginPopupModal("SysMain Info", &showSysMainPopup, ImGuiWindowFlags_NoCollapse))
             {
+                ImVec2 popupSizeSysMain(400, 200);
                 ImGui::SetWindowSize(popupSizeSysMain, ImGuiCond_Once);
 
                 if (isReadingSysMain)
@@ -801,7 +745,6 @@ int WINAPI WinMain
                 else
                 {
                     const auto& svc = sysmainResults[0];
-
                     ImGui::Text("PID: %u", svc.pid);
                     ImGui::Text("Status: %s", svc.status.c_str());
                     if (svc.status == "Running")
@@ -816,11 +759,43 @@ int WINAPI WinMain
                 ImGui::EndPopup();
             }
             ImGui::PopStyleVar();
+            ImGui::SameLine();
+
+            static bool showUSNPopup = false;
+            static bool isReadingUSN = false;
+            static std::vector<USNJournalReader::USNEvent> usnResults;
+            static float usnPopupAlpha = 0.0f;
+
+            ImGui::SetCursorPosX(windowRight - 1 * buttonWidth - ImGui::GetStyle().ItemSpacing.x * 1);
+            if (ImGui::Button("USNJournal", ImVec2(buttonWidth, 0)))
+            {
+                showUSNPopup = true;
+                isReadingUSN = true;
+                usnPopupAlpha = 0.0f;
+                usnResults.clear();
+
+                std::thread([]() {
+                    wchar_t windowsPath[MAX_PATH] = {};
+                    if (GetWindowsDirectoryW(windowsPath, MAX_PATH) != 0)
+                    {
+                        wchar_t driveLetter[3] = { windowsPath[0], L':', L'\0' };
+                        USNJournalReader reader(driveLetter);
+                        auto results = reader.Run();
+                        ImGui::GetIO().UserData = new std::vector<USNJournalReader::USNEvent>(std::move(results));
+                    }
+                    }).detach();
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Displays deleted or renamed entries of pfs files");
+
+            if (showUSNPopup) ImGui::OpenPopup("USN Journal Results");
+            if (usnPopupAlpha < 1.0f) usnPopupAlpha += ImGui::GetIO().DeltaTime * 4.0f;
+            usnPopupAlpha = std::min(usnPopupAlpha, 1.0f);
 
             ImGui::PushStyleVar(ImGuiStyleVar_Alpha, usnPopupAlpha);
-            ImVec2 popupSizeUSN(900, 500);
             if (ImGui::BeginPopupModal("USN Journal Results", &showUSNPopup, ImGuiWindowFlags_NoCollapse))
             {
+                ImVec2 popupSizeUSN(900, 500);
                 ImGui::SetWindowSize(popupSizeUSN, ImGuiCond_Once);
 
                 if (isReadingUSN)
@@ -841,23 +816,17 @@ int WINAPI WinMain
                 {
                     ImGui::Dummy(ImVec2(0, winSize.y * 0.40f));
                     ImGui::SetCursorPosX((winSize.x - ImGui::CalcTextSize("Reading USN Journal...").x) * 0.5f);
-
                     ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "Reading USN Journal...");
                 }
                 else if (usnResults.empty())
                 {
                     ImGui::Dummy(ImVec2(0, winSize.y * 0.38f));
-                    ImGui::SetCursorPosX(
-                        (winSize.x - ImGui::CalcTextSize(
-                            "No Prefetch or .pf activity detected after logon.").x) * 0.5f);
-
-                    ImGui::TextColored(
-                        ImVec4(0.75f, 0.45f, 0.45f, 1.0f),
-                        "No Prefetch or .pf activity detected after logon.");
+                    ImGui::SetCursorPosX((winSize.x - ImGui::CalcTextSize("No Prefetch or .pf activity detected after logon.").x) * 0.5f);
+                    ImGui::TextColored(ImVec4(0.75f, 0.45f, 0.45f, 1.0f), "No Prefetch or .pf activity detected after logon.");
                 }
                 else
                 {
-                    if (ImGui::BeginTable("USNTable",4,
+                    if (ImGui::BeginTable("USNTable", 4,
                         ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable,
                         ImVec2(0, -1)))
                     {
@@ -873,21 +842,10 @@ int WINAPI WinMain
                             const auto& e = *it;
                             ImGui::TableNextRow();
 
-                            ImGui::TableSetColumnIndex(0);
-                            ImGui::TextUnformatted(e.filenameOld.c_str());
-
-                            ImGui::TableSetColumnIndex(1);
-                            ImGui::TextUnformatted(e.filenameNew.empty() ? "-" : e.filenameNew.c_str());
-
-                            ImGui::TableSetColumnIndex(2);
-                            ImVec4 reasonColor = GetReasonColor(e);
-                            ImGui::TextColored(reasonColor, "%s", e.action.c_str());
-
-                            ImGui::TableSetColumnIndex(3);
-                            std::tm* tm = std::localtime(&e.timestamp);
-                            char timeBuf[32]{};
-                            std::strftime(timeBuf, sizeof(timeBuf),"%Y-%m-%d %H:%M:%S", tm);
-                            ImGui::TextUnformatted(timeBuf);
+                            ImGui::TableSetColumnIndex(0); ImGui::TextUnformatted(e.filenameOld.c_str());
+                            ImGui::TableSetColumnIndex(1); ImGui::TextUnformatted(e.filenameNew.empty() ? "-" : e.filenameNew.c_str());
+                            ImGui::TableSetColumnIndex(2); ImVec4 reasonColor = GetReasonColor(e); ImGui::TextColored(reasonColor, "%s", e.action.c_str());
+                            ImGui::TableSetColumnIndex(3); std::tm* tm = std::localtime(&e.timestamp); char timeBuf[32]{}; std::strftime(timeBuf, sizeof(timeBuf), "%Y-%m-%d %H:%M:%S", tm); ImGui::TextUnformatted(timeBuf);
                         }
 
                         ImGui::EndTable();
@@ -897,13 +855,9 @@ int WINAPI WinMain
                 ImGui::EndPopup();
             }
             ImGui::PopStyleVar();
+            ImGui::SameLine();
 
-            if (checkboxChanged)
-            {
-                fadeAlpha = 0.0f;
-                lastShowOnlyUnsigned = showOnlyUnsigned;
-                lastShowAfterLogon = showAfterLogon;
-            }
+            if (checkboxChanged) fadeAlpha = 0.0f;
 
             ImGui::Separator();
 
@@ -926,10 +880,10 @@ int WINAPI WinMain
                 std::string sigText;
                 switch (sig)
                 {
-                case SignatureStatus::Signed:   sigText = "signed"; break;
+                case SignatureStatus::Signed: sigText = "signed"; break;
                 case SignatureStatus::Unsigned: sigText = "unsigned"; break;
-                case SignatureStatus::Cheat:    sigText = "cheat"; break;
-                default:                        sigText = "not found"; break;
+                case SignatureStatus::Cheat: sigText = "cheat"; break;
+                case SignatureStatus::NotFound: sigText = "not found"; break;
                 }
 
                 bool matchesSearch =
@@ -938,7 +892,9 @@ int WINAPI WinMain
                     pathLower.find(searchLower) != std::string::npos ||
                     sigText.find(searchLower) != std::string::npos;
 
-                bool matchesUnsigned = !showOnlyUnsigned || sig == SignatureStatus::Unsigned || sig == SignatureStatus::Cheat;
+                bool matchesSig = (!showOnlyUnsigned && !showNotFound) ||
+                    (showOnlyUnsigned && (sig == SignatureStatus::Unsigned || sig == SignatureStatus::Cheat)) ||
+                    (showNotFound && sig == SignatureStatus::NotFound);
 
                 bool matchesLogon = true;
                 if (showAfterLogon && !info.lastExecutionTimes.empty())
@@ -947,12 +903,12 @@ int WINAPI WinMain
                     matchesLogon = execTime > logonTime;
                 }
 
-                if (matchesSearch && matchesUnsigned && matchesLogon)
+                if (matchesSearch && matchesSig && matchesLogon)
                     filteredData.push_back(result);
             }
 
             fadeAlpha += io.DeltaTime * fadeSpeed;
-            if (fadeAlpha > 1.0f) fadeAlpha = 1.0f;
+            fadeAlpha = std::min(fadeAlpha, 1.0f);
             ImGui::PushStyleVar(ImGuiStyleVar_Alpha, fadeAlpha);
 
             static std::vector<PrefetchResult> sortedData;
@@ -960,45 +916,24 @@ int WINAPI WinMain
             static int lastSortColumn = 0;
             static bool lastSortAscending = true;
 
-            auto sortLambda = [](const PrefetchResult& a, const PrefetchResult& b, int column, bool ascending) {
-                switch (column)
+            auto sortLambda = [](const PrefetchResult& a, const PrefetchResult& b, int column, bool ascending)
                 {
-                case 0: {
-                    time_t ta = a.info.lastExecutionTimes.empty() ? 0 : a.info.lastExecutionTimes.front();
-                    time_t tb = b.info.lastExecutionTimes.empty() ? 0 : b.info.lastExecutionTimes.front();
-                    return ascending ? ta < tb : ta > tb;
-                }
-                case 1: return ascending ? a.fileName < b.fileName : a.fileName > b.fileName;
-                case 2: return ascending ? a.info.mainExecutablePath < b.info.mainExecutablePath
-                    : a.info.mainExecutablePath > b.info.mainExecutablePath;
-                case 3: {
-                    auto getOrder = [](SignatureStatus s) {
-                        switch (s) {
-                        case SignatureStatus::Signed: return 0;
-                        case SignatureStatus::Unsigned: return 1;
-                        case SignatureStatus::Cheat: return 2;
-                        case SignatureStatus::NotFound: return 3;
-                        default: return 4;
-                        }
-                        };
-                    return ascending ? getOrder(a.info.signatureStatus) < getOrder(b.info.signatureStatus)
-                        : getOrder(a.info.signatureStatus) > getOrder(b.info.signatureStatus);
-                }
-                default: return false;
-                }
+                    switch (column)
+                    {
+                    case 0: { time_t ta = a.info.lastExecutionTimes.empty() ? 0 : a.info.lastExecutionTimes.front(); time_t tb = b.info.lastExecutionTimes.empty() ? 0 : b.info.lastExecutionTimes.front(); return ascending ? ta < tb : ta > tb; }
+                    case 1: return ascending ? a.fileName < b.fileName : a.fileName > b.fileName;
+                    case 2: return ascending ? a.info.mainExecutablePath < b.info.mainExecutablePath : a.info.mainExecutablePath > b.info.mainExecutablePath;
+                    case 3: { auto getOrder = [](SignatureStatus s) { switch (s) { case SignatureStatus::Signed: return 0; case SignatureStatus::Unsigned: return 1; case SignatureStatus::Cheat: return 2; case SignatureStatus::NotFound: return 3; default: return 4; } }; return ascending ? getOrder(a.info.signatureStatus) < getOrder(b.info.signatureStatus) : getOrder(a.info.signatureStatus) > getOrder(b.info.signatureStatus); }
+                    default: return false;
+                    }
                 };
 
-            if (filteredData.size() != lastFilteredData.size() ||
-                !std::equal(filteredData.begin(), filteredData.end(), lastFilteredData.begin()))
+            if (filteredData.size() != lastFilteredData.size() || !std::equal(filteredData.begin(), filteredData.end(), lastFilteredData.begin()))
             {
                 sortedData = filteredData;
                 lastFilteredData = filteredData;
-
                 if (!sortedData.empty())
-                    std::sort(sortedData.begin(), sortedData.end(),
-                        [sortLambda](const PrefetchResult& a, const PrefetchResult& b) {
-                            return sortLambda(a, b, lastSortColumn, lastSortAscending);
-                        });
+                    std::sort(sortedData.begin(), sortedData.end(), [sortLambda](const PrefetchResult& a, const PrefetchResult& b) { return sortLambda(a, b, lastSortColumn, lastSortAscending); });
             }
 
             float dt = io.DeltaTime;

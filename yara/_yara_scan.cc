@@ -116,6 +116,7 @@ rule CHEAT {
           $ar = "rightClickChk.BackgroundImage" nocase ascii wide
           $as = "UwU Client" nocase ascii wide
           $at = "lithiumclient.wtf" nocase ascii wide
+          $au = "vape.g" nocase ascii wide
 
     condition:
        any of them
