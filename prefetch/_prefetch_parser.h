@@ -7,6 +7,10 @@
 #include <future>
 #include <algorithm>
 #include <queue>
+#include <unordered_set>
+
+static std::unordered_set<std::wstring> scannedPaths;
+static std::mutex scannedMutex;
 
 struct PrefetchResult {
     std::string fileName;
@@ -29,6 +33,14 @@ void RunYaraScan(PrefetchInfo& info) {
     for (size_t i = 0; i < info.fileNames.size(); ++i) {
         if (i >= info.fileSignatures.size() || info.fileSignatures[i] != SignatureStatus::Unsigned)
             continue;
+
+        {
+            std::lock_guard<std::mutex> lock(scannedMutex);
+            if (scannedPaths.find(info.fileNames[i]) != scannedPaths.end()) {
+                continue;
+            }
+            scannedPaths.insert(info.fileNames[i]);
+        }
 
         tempFilePath = WStringToUTF8(info.fileNames[i]);
         tempMatches.clear();
@@ -86,17 +98,17 @@ std::vector<PrefetchResult> ScanPrefetchFolder() {
 
             futures.push_back(std::async(std::launch::async, [path, &resultsMutex, &results]() {
                 try {
-                    PrefetchFile pf(path.string());
+                    PrefetchFile pf(path.wstring());
                     if (!pf.IsValid()) return;
 
-                    auto infoOpt = pf.ExtractInfo(path.string());
+                    auto infoOpt = pf.ExtractInfo(path.wstring());
                     if (!infoOpt) return;
 
                     RunYaraScan(*infoOpt);
 
                     {
                         std::lock_guard<std::mutex> lock(resultsMutex);
-                        results.push_back(PrefetchResult{ path.filename().string(), std::move(*infoOpt) });
+                        results.push_back(PrefetchResult{ WStringToUTF8(path.filename().wstring()), std::move(*infoOpt) });
                     }
                 }
                 catch (...) {

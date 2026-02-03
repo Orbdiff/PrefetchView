@@ -170,7 +170,7 @@ bool IsPathForcedSigned(const std::wstring& rawPath)
         norm.push_back(ToUpperFast(ch));
     }
 
-    return g_forcedSignedPaths.find(norm) != g_forcedSignedPaths.end();
+    return GetForcedSignedPaths().find(norm) != GetForcedSignedPaths().end();
 }
 
 SignatureStatus GetSignatureStatus(const std::wstring& path)
@@ -255,5 +255,4 @@ SignatureStatus GetSignatureStatus(const std::wstring& path)
     }
 
     return status;
-
 }

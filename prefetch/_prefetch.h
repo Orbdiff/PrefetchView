@@ -21,16 +21,27 @@
 #include <mutex>
 #include <filesystem>
 #include <Shlwapi.h>
+#include <unordered_map>
+
+static std::unordered_map<std::wstring, SignatureStatus> signatureCache;
+static std::mutex signatureMutex;
 
 inline std::string WStringToUTF8(const std::wstring& wstr)
 {
     if (wstr.empty()) return {};
 
+    std::wstring lowerWstr = wstr;
+    std::transform(lowerWstr.begin(), lowerWstr.end(), lowerWstr.begin(), ::towlower);
+
+    if (!lowerWstr.empty() && std::iswalpha(lowerWstr[0])) {
+        lowerWstr[0] = std::towupper(lowerWstr[0]);
+    }
+
     int size_needed = WideCharToMultiByte(
         CP_UTF8,
         0,
-        wstr.data(),
-        static_cast<int>(wstr.size()),
+        lowerWstr.data(),
+        static_cast<int>(lowerWstr.size()),
         nullptr,
         0,
         nullptr,
@@ -44,8 +55,8 @@ inline std::string WStringToUTF8(const std::wstring& wstr)
     int converted = WideCharToMultiByte(
         CP_UTF8,
         0,
-        wstr.data(),
-        static_cast<int>(wstr.size()),
+        lowerWstr.data(),
+        static_cast<int>(lowerWstr.size()),
         result.data(),
         size_needed,
         nullptr,
@@ -53,12 +64,6 @@ inline std::string WStringToUTF8(const std::wstring& wstr)
     );
 
     if (converted <= 0) return {};
-
-    std::transform(result.begin(), result.end(), result.begin(), ::tolower);
-
-    if (!result.empty() && result[0] >= 'a' && result[0] <= 'z') {
-        result[0] = result[0] - 'a' + 'A';
-    }
 
     return result;
 }
@@ -91,7 +96,7 @@ struct PrefetchInfo
 
 class PrefetchFile {
 public:
-    explicit PrefetchFile(const std::string& filepath) noexcept
+    explicit PrefetchFile(const std::wstring& filepath) noexcept
     {
         if (!LoadBinaryFile(filepath, rawData_))
             return;
@@ -102,7 +107,7 @@ public:
         if (rawData_.size() >= 8 &&
             rawData_[0] == 'M' && rawData_[1] == 'A' && rawData_[2] == 'M') {
             if (auto dec = DecompressMAM(rawData_))
-                rawData_ = std::move(*dec);
+                rawData_ = std::move(dec.value());
             else
                 rawData_.clear();
         }
@@ -116,13 +121,13 @@ public:
 
     bool IsValid() const noexcept { return !rawData_.empty(); }
 
-    std::optional<PrefetchInfo> ExtractInfo(const std::string& filepath) const noexcept
+    std::optional<PrefetchInfo> ExtractInfo(const std::wstring& filepath) const noexcept
     {
         if (!IsValid())
             return std::nullopt;
 
         PrefetchInfo info;
-        info.filePath = filepath;
+        info.filePath = WStringToUTF8(filepath);
         info.version = ReadLE<int>(0x0).value_or(0);
         info.signature = ReadLE<int>(0x4).value_or(0);
         info.fileSize = ReadLE<int>(0xC).value_or(0);
@@ -139,7 +144,7 @@ public:
         default: info.runCount = 0; break;
         }
 
-        std::wstring pfWPath(filepath.begin(), filepath.end());
+        std::wstring pfWPath = filepath;
         std::wstring exeName = ExtractExeNameFromPfFilename(pfWPath);
         info.mainExecutablePath = FindExecutablePath(exeName, info.fileNames);
 
@@ -168,7 +173,21 @@ public:
                 localResults.reserve(end - start);
 
                 for (size_t j = start; j < end; ++j)
-                    localResults.push_back(GetSignatureStatus(info.fileNames[j]));
+                {
+                    SignatureStatus status;
+                    {
+                        std::lock_guard<std::mutex> lock(signatureMutex);
+                        auto it = signatureCache.find(info.fileNames[j]);
+                        if (it != signatureCache.end()) {
+                            status = it->second;
+                        }
+                        else {
+                            status = GetSignatureStatus(info.fileNames[j]);
+                            signatureCache[info.fileNames[j]] = status;
+                        }
+                    }
+                    localResults.push_back(status);
+                }
 
                 return localResults;
                 }));
@@ -213,18 +232,25 @@ private:
 
     static constexpr size_t MIN_PF_SIZE = 0x100;
 
-    static bool LoadBinaryFile(const std::string& filepath, std::vector<char>& out) noexcept
+    static bool LoadBinaryFile(const std::wstring& filepath, std::vector<char>& out) noexcept
     {
-        std::ifstream ifs(filepath, std::ios::binary | std::ios::ate);
-        if (!ifs) return false;
+        HANDLE hFile = CreateFileW(filepath.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (hFile == INVALID_HANDLE_VALUE) return false;
 
-        std::streamsize size = ifs.tellg();
-        if (size <= 0) return false;
+        LARGE_INTEGER size;
+        if (!GetFileSizeEx(hFile, &size) || size.QuadPart <= 0) {
+            CloseHandle(hFile);
+            return false;
+        }
 
-        out.resize(static_cast<size_t>(size));
-        ifs.seekg(0, std::ios::beg);
-        if (!ifs.read(out.data(), size)) return false;
+        out.resize(static_cast<size_t>(size.QuadPart));
+        DWORD bytesRead;
+        if (!ReadFile(hFile, out.data(), static_cast<DWORD>(out.size()), &bytesRead, nullptr) || bytesRead != out.size()) {
+            CloseHandle(hFile);
+            return false;
+        }
 
+        CloseHandle(hFile);
         return true;
     }
 
