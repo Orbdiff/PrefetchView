@@ -3,23 +3,54 @@
 #include <windows.h>
 #include <string>
 #include <unordered_map>
+#include <string_view>
+#include <vector>
+#include <algorithm>
 
 std::wstring MapSerialToDriveLetter(DWORD targetSerial)
 {
-    static std::unordered_map<DWORD, std::wstring> serialToDriveCache;
+    static std::vector<std::pair<DWORD, std::wstring>> serialToDriveCache;
+    static bool cacheInitialized = false;
 
-    if (auto it = serialToDriveCache.find(targetSerial); it != serialToDriveCache.end())
-        return it->second;
+    for (const auto& pair : serialToDriveCache)
+    {
+        if (pair.first == targetSerial)
+        {
+            return pair.second;
+        }
+    }
 
-    wchar_t path[] = L"A:\\";
-    for (wchar_t drive = L'A'; drive <= L'Z'; ++drive) {
-        path[0] = drive;
-        DWORD volumeSerial = 0;
+    if (!cacheInitialized) 
+    {
+        DWORD drives = GetLogicalDrives();
+        if (drives == 0) 
+        {
+            cacheInitialized = true;
+            return L"";
+        }
 
-        if (GetVolumeInformationW(path, nullptr, 0, &volumeSerial, nullptr, nullptr, nullptr, 0)) {
-            serialToDriveCache[volumeSerial] = path;
-            if (volumeSerial == targetSerial)
-                return path;
+        wchar_t path[] = L"A:\\";
+        for (int i = 0; i < 26; ++i)
+        {
+            if (drives & (1 << i)) 
+            {
+                path[0] = L'A' + i;
+                DWORD volumeSerial = 0;
+
+                if (GetVolumeInformationW(path, nullptr, 0, &volumeSerial, nullptr, nullptr, nullptr, 0)) 
+                {
+                    serialToDriveCache.emplace_back(volumeSerial, path);
+                }
+            }
+        }
+        cacheInitialized = true;
+    }
+
+    for (const auto& pair : serialToDriveCache)
+    {
+        if (pair.first == targetSerial)
+        {
+            return pair.second;
         }
     }
 
@@ -30,20 +61,22 @@ std::wstring ConvertVolumePathToDrive(const std::wstring& originalPath, std::wst
 {
     constexpr std::wstring_view volumePrefix = L"\\VOLUME{";
 
-    size_t start = originalPath.find(volumePrefix);
-    if (start == std::wstring::npos)
+    std::wstring_view pathView(originalPath);
+
+    size_t start = pathView.find(volumePrefix);
+    if (start == std::wstring_view::npos)
         return originalPath;
 
-    size_t end = originalPath.find(L'}', start);
-    if (end == std::wstring::npos)
+    size_t end = pathView.find(L'}', start);
+    if (end == std::wstring_view::npos)
         return originalPath;
 
-    size_t dash = originalPath.rfind(L'-', end);
-    if (dash == std::wstring::npos || dash + 1 >= end)
+    size_t dash = pathView.rfind(L'-', end);
+    if (dash == std::wstring_view::npos || dash + 1 >= end)
         return originalPath;
 
-    std::wstring serialStr = originalPath.substr(dash + 1, end - dash - 1);
-    DWORD serial = std::wcstoul(serialStr.c_str(), nullptr, 16);
+    std::wstring_view serialStr = pathView.substr(dash + 1, end - dash - 1);
+    DWORD serial = std::wcstoul(serialStr.data(), nullptr, 16);
     if (serial == 0)
         return originalPath;
 

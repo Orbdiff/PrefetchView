@@ -33,35 +33,18 @@ inline std::string WStringToUTF8(const std::wstring& wstr)
     std::wstring lowerWstr = wstr;
     std::transform(lowerWstr.begin(), lowerWstr.end(), lowerWstr.begin(), ::towlower);
 
-    if (!lowerWstr.empty() && std::iswalpha(lowerWstr[0])) {
+    if (!lowerWstr.empty() && std::iswalpha(lowerWstr[0])) 
+    {
         lowerWstr[0] = std::towupper(lowerWstr[0]);
     }
 
-    int size_needed = WideCharToMultiByte(
-        CP_UTF8,
-        0,
-        lowerWstr.data(),
-        static_cast<int>(lowerWstr.size()),
-        nullptr,
-        0,
-        nullptr,
-        nullptr
-    );
+    int size_needed = WideCharToMultiByte(CP_UTF8, 0, lowerWstr.data(), static_cast<int>(lowerWstr.size()), nullptr, 0, nullptr, nullptr);
 
     if (size_needed <= 0) return {};
 
     std::string result(size_needed, 0);
 
-    int converted = WideCharToMultiByte(
-        CP_UTF8,
-        0,
-        lowerWstr.data(),
-        static_cast<int>(lowerWstr.size()),
-        result.data(),
-        size_needed,
-        nullptr,
-        nullptr
-    );
+    int converted = WideCharToMultiByte(CP_UTF8, 0, lowerWstr.data(), static_cast<int>(lowerWstr.size()), result.data(), size_needed, nullptr, nullptr);
 
     if (converted <= 0) return {};
 
@@ -86,12 +69,16 @@ struct PrefetchInfo
     std::wstring cachedFolderPath;
     std::vector<std::string> matched_rules;
 
-    bool operator==(const PrefetchInfo& other) const {
+    bool operator==(const PrefetchInfo& other) const 
+    {
         return mainExecutablePath == other.mainExecutablePath &&
             signatureStatus == other.signatureStatus;
     }
 
-    bool operator!=(const PrefetchInfo& other) const { return !(*this == other); }
+    bool operator!=(const PrefetchInfo& other) const
+    { 
+        return !(*this == other); 
+    }
 };
 
 class PrefetchFile {
@@ -114,12 +101,16 @@ public:
         else if (rawData_.size() >= 8 &&
             rawData_[4] == 'S' && rawData_[5] == 'C' && rawData_[6] == 'C' && rawData_[7] == 'A') {
         }
-        else {
+        else 
+        {
             rawData_.clear();
         }
     }
 
-    bool IsValid() const noexcept { return !rawData_.empty(); }
+    bool IsValid() const noexcept
+    { 
+        return !rawData_.empty();
+    }
 
     std::optional<PrefetchInfo> ExtractInfo(const std::wstring& filepath) const noexcept
     {
@@ -168,7 +159,8 @@ public:
             if (start >= totalFiles) break;
             size_t end = std::min(start + batchSize, totalFiles);
 
-            futures.emplace_back(std::async(std::launch::async, [start, end, &info]() {
+            futures.emplace_back(std::async(std::launch::async, [start, end, &info]() 
+                {
                 std::vector<SignatureStatus> localResults;
                 localResults.reserve(end - start);
 
@@ -181,8 +173,9 @@ public:
                         if (it != signatureCache.end()) {
                             status = it->second;
                         }
-                        else {
-                            status = GetSignatureStatus(info.fileNames[j]);
+                        else
+                        {
+                            status = GetSignatureStatus(info.fileNames[j], false);
                             signatureCache[info.fileNames[j]] = status;
                         }
                     }
@@ -202,7 +195,8 @@ public:
                 std::make_move_iterator(partial.end()));
         }
 
-        if (!info.lastExecutionTimes.empty()) {
+        if (!info.lastExecutionTimes.empty()) 
+        {
             time_t t = info.lastExecutionTimes.front();
             struct tm tmBuf;
             localtime_s(&tmBuf, &t);
@@ -210,7 +204,8 @@ public:
             strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", &tmBuf);
             info.cachedExecTime = buffer;
         }
-        else {
+        else
+        {
             info.cachedExecTime = "N/A";
         }
 
@@ -223,9 +218,18 @@ public:
         return info;
     }
 
-    int GetVersion() const noexcept { return ReadLE<int>(0x0).value_or(0); }
-    int GetSignature() const noexcept { return ReadLE<int>(0x4).value_or(0); }
-    int GetFileSize() const noexcept { return ReadLE<int>(0xC).value_or(0); }
+    int GetVersion() const noexcept
+    { 
+        return ReadLE<int>(0x0).value_or(0);
+    }
+    int GetSignature() const noexcept 
+    { 
+        return ReadLE<int>(0x4).value_or(0); 
+    }
+    int GetFileSize() const noexcept 
+    {
+        return ReadLE<int>(0xC).value_or(0);
+    }
 
 private:
     std::vector<char> rawData_;
@@ -238,14 +242,16 @@ private:
         if (hFile == INVALID_HANDLE_VALUE) return false;
 
         LARGE_INTEGER size;
-        if (!GetFileSizeEx(hFile, &size) || size.QuadPart <= 0) {
+        if (!GetFileSizeEx(hFile, &size) || size.QuadPart <= 0) 
+        {
             CloseHandle(hFile);
             return false;
         }
 
         out.resize(static_cast<size_t>(size.QuadPart));
         DWORD bytesRead;
-        if (!ReadFile(hFile, out.data(), static_cast<DWORD>(out.size()), &bytesRead, nullptr) || bytesRead != out.size()) {
+        if (!ReadFile(hFile, out.data(), static_cast<DWORD>(out.size()), &bytesRead, nullptr) || bytesRead != out.size()) 
+        {
             CloseHandle(hFile);
             return false;
         }
@@ -293,10 +299,8 @@ private:
         HMODULE ntdll = ::GetModuleHandleA("ntdll.dll");
         if (!ntdll) return std::nullopt;
 
-        auto rtlDecompress = reinterpret_cast<RtlDecompressBufferExFn>(
-            ::GetProcAddress(ntdll, "RtlDecompressBufferEx"));
-        auto rtlWorkspaceSize = reinterpret_cast<RtlGetCompressionWorkSpaceSizeFn>(
-            ::GetProcAddress(ntdll, "RtlGetCompressionWorkSpaceSize"));
+        auto rtlDecompress = reinterpret_cast<RtlDecompressBufferExFn>(::GetProcAddress(ntdll, "RtlDecompressBufferEx"));
+        auto rtlWorkspaceSize = reinterpret_cast<RtlGetCompressionWorkSpaceSizeFn>(::GetProcAddress(ntdll, "RtlGetCompressionWorkSpaceSize"));
 
         if (!rtlDecompress || !rtlWorkspaceSize) return std::nullopt;
 
@@ -305,19 +309,23 @@ private:
         if (s != 0) return std::nullopt;
 
         std::vector<char> out;
-        try {
+        try 
+        {
             out.resize(decompressedSize);
         }
-        catch (...) {
+        catch (...) 
+        {
             return std::nullopt;
         }
 
         std::unique_ptr<std::byte[]> workspace;
         if (ws1 > 0) {
-            try {
+            try 
+            {
                 workspace.reset(new std::byte[ws1]);
             }
-            catch (...) {
+            catch (...) 
+            {
                 return std::nullopt;
             }
         }
@@ -332,7 +340,8 @@ private:
         );
 
         if (status != 0) return std::nullopt;
-        if (finalSize != out.size()) {
+        if (finalSize != out.size())
+        {
             out.resize(finalSize);
         }
 
@@ -355,7 +364,8 @@ private:
         results.reserve(16);
 
         std::wstring current;
-        for (size_t pos = 0; pos + sizeof(wchar_t) <= sizeBytes; pos += sizeof(wchar_t)) {
+        for (size_t pos = 0; pos + sizeof(wchar_t) <= sizeBytes; pos += sizeof(wchar_t)) 
+        {
             wchar_t ch;
             std::memcpy(&ch, rawData_.data() + offset + pos, sizeof(wchar_t));
             if (ch == L'\0') {
@@ -365,7 +375,8 @@ private:
                     current.clear();
                 }
             }
-            else {
+            else 
+            {
                 current += ch;
             }
         }
@@ -391,7 +402,8 @@ private:
         default: return times;
         }
 
-        for (int i = 0; i < 8; ++i) {
+        for (int i = 0; i < 8; ++i) 
+        {
             if (offset + sizeof(uint64_t) > rawData_.size()) break;
             uint64_t li = 0;
             std::memcpy(&li, rawData_.data() + offset, sizeof(uint64_t));

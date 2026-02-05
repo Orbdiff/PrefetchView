@@ -4,15 +4,17 @@
 #include <vector>
 #include <algorithm>
 #include <cwctype>
+#include <iterator>
 
 std::wstring NormalizeName(const std::wstring& name)
 {
     std::wstring result;
-    for (wchar_t c : name) {
-        if (std::iswalnum(c)) {
-            result += std::towlower(c);
-        }
-    }
+    result.reserve(name.size());
+    std::transform(name.begin(), name.end(), std::back_inserter(result), [](wchar_t c) 
+        {
+        return std::iswalnum(c) ? std::towlower(c) : L'\0';
+        });
+    result.erase(std::remove(result.begin(), result.end(), L'\0'), result.end());
     return result;
 }
 
@@ -27,12 +29,24 @@ std::wstring ExtractExeNameFromPfFilename(const std::wstring& pfPath)
 
 std::wstring FindExecutablePath(const std::wstring& exeName, const std::vector<std::wstring>& paths)
 {
-    std::wstring bestMatch;
-    size_t bestScore = 0;
+    if (paths.empty())
+    {
+        return L"No path found...";
+    }
 
     const std::wstring exeNorm = NormalizeName(exeName);
 
-    for (const auto& fullPath : paths) {
+    struct Match 
+    {
+        std::wstring path;
+        size_t score = 0;
+    };
+
+    std::vector<Match> matches;
+    matches.reserve(paths.size());
+
+    for (const auto& fullPath : paths) 
+    {
         const size_t nameStart = fullPath.find_last_of(L"\\/");
         const std::wstring fileName = (nameStart != std::wstring::npos)
             ? fullPath.substr(nameStart + 1)
@@ -42,28 +56,35 @@ std::wstring FindExecutablePath(const std::wstring& exeName, const std::vector<s
 
         size_t score = 0;
         size_t len = std::min(exeNorm.size(), fileNorm.size());
-        for (size_t i = 0; i < len; ++i) {
-            if (exeNorm[i] == fileNorm[i]) {
+        for (size_t i = 0; i < len; ++i)
+        {
+            if (exeNorm[i] == fileNorm[i]) 
+            {
                 ++score;
             }
-            else {
+            else 
+            {
                 break;
             }
         }
 
-        if (fileNorm.find(exeNorm) != std::wstring::npos) {
+        if (fileNorm.find(exeNorm) != std::wstring::npos)
+        {
             score += 2;
         }
 
-        if (score > bestScore) {
-            bestScore = score;
-            bestMatch = fullPath;
-        }
+        matches.push_back({ fullPath, score });
     }
 
-    if (bestMatch.empty() || bestScore == 0) {
+    auto bestIt = std::max_element(matches.begin(), matches.end(), [](const Match& a, const Match& b)
+        {
+        return a.score < b.score;
+        });
+
+    if (bestIt->score == 0) 
+    {
         return L"No path found...";
     }
 
-    return bestMatch;
+    return bestIt->path;
 }

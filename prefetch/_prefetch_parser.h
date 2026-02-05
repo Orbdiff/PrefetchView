@@ -12,31 +12,75 @@
 static std::unordered_set<std::wstring> scannedPaths;
 static std::mutex scannedMutex;
 
-struct PrefetchResult {
+static std::atomic<int> processedFiles(0);
+static std::atomic<int> totalFiles(0);
+static std::atomic<bool> scanInProgress(false);
+static std::string currentProcessingFile;
+static std::mutex currentFileMutex;
+
+void ResetPrefetchProgress()
+{
+    processedFiles = 0;
+    totalFiles = 0;
+    scanInProgress = false;
+    {
+        std::lock_guard<std::mutex> lock(currentFileMutex);
+        currentProcessingFile = "";
+    }
+}
+
+int GetProcessedFiles()
+{
+    return processedFiles.load(); 
+}
+
+int GetTotalFiles() 
+{ 
+    return totalFiles.load();
+}
+
+bool IsScanInProgress() 
+{ 
+    return scanInProgress.load();
+}
+
+std::string GetCurrentProcessingFile() 
+{
+    std::lock_guard<std::mutex> lock(currentFileMutex);
+    return currentProcessingFile;
+}
+
+struct PrefetchResult
+{
     std::string fileName;
     PrefetchInfo info;
 
-    bool operator==(const PrefetchResult& other) const noexcept {
+    bool operator==(const PrefetchResult& other) const noexcept 
+    {
         return fileName == other.fileName && info == other.info;
     }
 
-    bool operator!=(const PrefetchResult& other) const noexcept {
+    bool operator!=(const PrefetchResult& other) const noexcept 
+    {
         return !(*this == other);
     }
 };
 
-void RunYaraScan(PrefetchInfo& info) {
+void RunYaraScan(PrefetchInfo& info)
+{
     bool foundCheat = false;
     std::vector<std::string> tempMatches;
     std::string tempFilePath;
 
-    for (size_t i = 0; i < info.fileNames.size(); ++i) {
+    for (size_t i = 0; i < info.fileNames.size(); ++i) 
+    {
         if (i >= info.fileSignatures.size() || info.fileSignatures[i] != SignatureStatus::Unsigned)
             continue;
 
         {
             std::lock_guard<std::mutex> lock(scannedMutex);
-            if (scannedPaths.find(info.fileNames[i]) != scannedPaths.end()) {
+            if (scannedPaths.find(info.fileNames[i]) != scannedPaths.end()) 
+            {
                 continue;
             }
             scannedPaths.insert(info.fileNames[i]);
@@ -45,7 +89,8 @@ void RunYaraScan(PrefetchInfo& info) {
         tempFilePath = WStringToUTF8(info.fileNames[i]);
         tempMatches.clear();
 
-        if (FastScanFile(tempFilePath, tempMatches) && !tempMatches.empty()) {
+        if (FastScanFile(tempFilePath, tempMatches) && !tempMatches.empty())
+        {
             info.fileSignatures[i] = SignatureStatus::Cheat;
             info.matched_rules.insert(
                 info.matched_rules.end(),
@@ -61,7 +106,8 @@ void RunYaraScan(PrefetchInfo& info) {
     }
 }
 
-std::vector<PrefetchResult> ScanPrefetchFolder() {
+std::vector<PrefetchResult> ScanPrefetchFolder() 
+{
     std::vector<PrefetchResult> results;
     std::queue<std::filesystem::path> tasks;
     std::mutex resultsMutex;
@@ -75,20 +121,28 @@ std::vector<PrefetchResult> ScanPrefetchFolder() {
     if (!std::filesystem::exists(prefetchFolder) || !std::filesystem::is_directory(prefetchFolder))
         return results;
 
-    for (const auto& entry : std::filesystem::directory_iterator(prefetchFolder)) {
+    int fileCount = 0;
+    for (const auto& entry : std::filesystem::directory_iterator(prefetchFolder))
+    {
         if (!entry.is_regular_file()) continue;
         auto ext = entry.path().extension().string();
         if (ext != ".pf" && ext != ".PF") continue;
         tasks.push(entry.path());
+        ++fileCount;
     }
+
+    ResetPrefetchProgress();
+    totalFiles = fileCount;
+    scanInProgress = true;
 
     const size_t hwThreads = std::max(1u, std::thread::hardware_concurrency());
     const size_t maxConcurrentTasks = 4;
     std::vector<std::future<void>> futures;
 
-    while (!tasks.empty() || !futures.empty()) {
-
-        while (futures.size() < maxConcurrentTasks && !tasks.empty()) {
+    while (!tasks.empty() || !futures.empty())
+    {
+        while (futures.size() < maxConcurrentTasks && !tasks.empty())
+        {
             std::filesystem::path path;
             {
                 std::lock_guard<std::mutex> lock(resultsMutex);
@@ -96,13 +150,28 @@ std::vector<PrefetchResult> ScanPrefetchFolder() {
                 tasks.pop();
             }
 
-            futures.push_back(std::async(std::launch::async, [path, &resultsMutex, &results]() {
-                try {
+            {
+                std::lock_guard<std::mutex> lock(currentFileMutex);
+                currentProcessingFile = WStringToUTF8(path.filename().wstring());
+            }
+
+            futures.push_back(std::async(std::launch::async, [path, &resultsMutex, &results]() 
+                {
+                try 
+                {
                     PrefetchFile pf(path.wstring());
-                    if (!pf.IsValid()) return;
+                    if (!pf.IsValid()) 
+                    {
+                        processedFiles++;
+                        return;
+                    }
 
                     auto infoOpt = pf.ExtractInfo(path.wstring());
-                    if (!infoOpt) return;
+                    if (!infoOpt) 
+                    {
+                        processedFiles++;
+                        return;
+                    }
 
                     RunYaraScan(*infoOpt);
 
@@ -110,21 +179,28 @@ std::vector<PrefetchResult> ScanPrefetchFolder() {
                         std::lock_guard<std::mutex> lock(resultsMutex);
                         results.push_back(PrefetchResult{ WStringToUTF8(path.filename().wstring()), std::move(*infoOpt) });
                     }
+                    processedFiles++;
                 }
-                catch (...) {
-
+                catch (...) 
+                {
+                    processedFiles++;
                     return;
                 }
                 }));
         }
 
-        futures.erase(
-            std::remove_if(futures.begin(), futures.end(), [](std::future<void>& f) {
+        futures.erase(std::remove_if(futures.begin(), futures.end(), [](std::future<void>& f) 
+                {
                 return f.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
                 }),
             futures.end()
         );
     }
 
+    scanInProgress = false;
+    {
+        std::lock_guard<std::mutex> lock(currentFileMutex);
+        currentProcessingFile = "";
+    }
     return results;
 }
