@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include <string>
 #include <vector>
 #include <cstdio>
@@ -20,108 +20,115 @@ void AddYaraRule(const std::string& name, const std::string& ruleSource) {
 }
 
 void InitGenericRules() {
-    AddYaraRule("STRINGS", R"(
-import "pe"
-rule STRINGS {
-    strings:
-        $a1 = "AutoClicker" nocase ascii wide
-        $a2 = "Click Interval" nocase ascii wide
-        $a3 = "Start Clicking" nocase ascii wide
-        $a4 = "Stop Clicking" nocase ascii wide
-        $a6 = "mouse_event" nocase ascii wide
-    condition:
-        3 of them
-}
-)");
+    AddYaraRule("AUTOCLICKER",
+        "import \"pe\"\n"
+        "rule AUTOCLICKER {\n"
+        "    strings:\n"
+        "        $a1 = \"AutoClicker\" nocase ascii wide\n"
+        "        $a2 = \"Click Interval\" nocase ascii wide\n"
+        "        $a3 = \"Start Clicking\" nocase ascii wide\n"
+        "        $a4 = \"Stop Clicking\" nocase ascii wide\n"
+        "        $a6 = \"mouse_event\" nocase ascii wide\n"
+        "    condition:\n"
+        "        2 of them\n"
+        "}\n"
+    );
 
-    AddYaraRule("IMPORTS", R"(
+    AddYaraRule("IMPORTS",
+        "rule IMPORTS {\n"
+        "    condition:\n"
+        "        pe.imports(\"user32.dll\", \"mouse_event\") and\n"
+        "        pe.imports(\"user32.dll\", \"GetAsyncKeyState\") and\n"
+        "        pe.imports(\"kernel32.dll\", \"Sleep\")\n"
+        "}\n"
+    );
 
-rule IMPORTS {
-    condition:
-        pe.imports("user32.dll", "mouse_event") and
-        pe.imports("user32.dll", "GetAsyncKeyState") and
-        pe.imports("kernel32.dll", "Sleep")
-}
-)");
+    AddYaraRule("CSHARP",
+        "rule CSHARP {\n"
+        "    strings:\n"
+        "        $dotnet1 = \"mscorlib\" ascii wide\n"
+        "        $dotnet2 = \"System.Windows.Forms\" ascii wide\n"
+        "        $dotnet3 = \"System.Threading\" ascii wide\n"
+        "        $dotnet4 = \"System.Reflection\" ascii wide\n"
+        "        $dotnet5 = \"System.Runtime.InteropServices\" ascii wide\n"
+        "        $input1 = \"SendInput\" ascii wide\n"
+        "        $input2 = \"mouse_event\" ascii wide\n"
+        "        $input3 = \"SetCursorPos\" ascii wide\n"
+        "        $input4 = \"keybd_event\" ascii wide\n"
+        "        $click1 = \"AutoClicker\" ascii wide\n"
+        "        $click2 = \"Clicker\" ascii wide\n"
+        "        $click3 = \"MouseClicker\" ascii wide\n"
+        "        $click4 = \"ClickInterval\" ascii wide\n"
+        "        $click5 = \"StartClicking\" ascii wide\n"
+        "        $click6 = \"ClicksPerSecond\" ascii wide\n"
+        "    condition:\n"
+        "        (1 of($dotnet*)) and (1 of($input*)) and (1 of($click*))\n"
+        "}\n"
+    );
 
-    AddYaraRule("CSHARP", R"(
+    AddYaraRule("CHEAT",
+        "rule CHEAT {\n"
+        "    strings:\n"
+        "        $a = \"penis.dll\" nocase ascii wide\n"
+        "        $b = \"[!] Github: https://github.com/JohnXina-spec\" nocase ascii wide\n"
+        "        $c = \".vapeclientT\" nocase ascii wide\n"
+        "        $d = \"(JLcn/gov/vape/util/jvmti/ClassLoadHook;)I\" nocase ascii wide\n"
+        "        $e = \"net.ccbluex.liquidbounce.UT\" nocase ascii wide\n"
+        "        $f = \"nick.AugustusClassLoader.class\" nocase ascii wide\n"
+        "        $g = \"com.riseclient.Main.class\" nocase ascii wide\n"
+        "        $h = \"slinky_library.dll\" nocase ascii wide\n"
+        "        $i = \"assets.minecraft.haru.img.clickgui.PK\" nocase ascii wide\n"
+        "        $j = \"assets.minecraft.sakura.sound.welcome.mp3\" nocase ascii wide\n"
+        "        $k = \"VROOMCLICKER\" nocase ascii wide\n"
+        "        $n = \"www.koid.es\" nocase ascii wide\n"
+        "        $o = \"vape.gg\" nocase ascii wide\n"
+        "        $q = \"DopeClicker\" nocase ascii wide\n"
+        "        $s = \"Cracked by Kangaroo\" nocase ascii wide\n"
+        "        $t = \"Sapphire LITE Clicker\" nocase ascii wide\n"
+        "        $w = \"dream-injector\" nocase ascii wide\n"
+        "        $x = \"Exodus.codes\" nocase ascii wide\n"
+        "        $y = \"slinky.gg\" nocase ascii wide\n"
+        "        $z = \"[!] Failed to find Vape jar\" nocase ascii wide\n"
+        "        $aa = \"Vape Launcher\" nocase ascii wide\n"
+        "        $ac = \"String Cleaner\" nocase ascii wide\n"
+        "        $ad = \"Open Minecraft, then try again.\" nocase ascii wide\n"
+        "        $af = \"PE Injector\" nocase ascii wide\n"
+        "        $ah = \"starlight v1.0\" nocase ascii wide\n"
+        "        $ai = \"Striker.exe\" nocase ascii wide\n"
+        "        $aj = \"Monolith Lite\" nocase ascii wide\n"
+        "        $ak = \"B.fagg0t0\" nocase ascii wide\n"
+        "        $al = \"B.fag0\" nocase ascii wide\n"
+        "        $ap = \"UNICORN CLIENT\" nocase ascii wide\n"
+        "        $aq = \"Adding delay to Minecraft\" nocase ascii wide\n"
+        "        $ar = \"rightClickChk.BackgroundImage\" nocase ascii wide\n"
+        "        $as = \"UwU Client\" nocase ascii wide\n"
+        "        $at = \"lithiumclient.wtf\" nocase ascii wide\n"
+        "        $au = \"vape.g\" nocase ascii wide\n"
+        "        $av = \"S3t 4ut0C1ick3r t0ggLe key\" nocase ascii wide\n"
+        "        $aw = \"RECOVERYCLICKER\" nocase ascii wide\n"
+        "    condition:\n"
+        "        any of them\n"
+        "}\n"
+    );
 
-rule CSHARP {
+    AddYaraRule("HIGH_ENTROPY",
+        "import \"math\"\n"
+        "rule HIGH_ENTROPY {\n"
+        "    condition:\n"
+        "        math.entropy(0, filesize) > 7.0\n"
+        "}\n"
+    );
 
-        strings:
-        $dotnet1 = "mscorlib" ascii wide
-        $dotnet2 = "System.Windows.Forms" ascii wide
-        $dotnet3 = "System.Threading" ascii wide
-        $dotnet4 = "System.Reflection" ascii wide
-        $dotnet5 = "System.Runtime.InteropServices" ascii wide
-
-        $input1 = "SendInput" ascii wide
-        $input2 = "mouse_event" ascii wide
-        $input3 = "SetCursorPos" ascii wide
-        $input4 = "keybd_event" ascii wide
-
-        $click1 = "AutoClicker" ascii wide
-        $click2 = "Clicker" ascii wide
-        $click3 = "MouseClicker" ascii wide
-        $click4 = "ClickInterval" ascii wide
-        $click5 = "StartClicking" ascii wide
-        $click6 = "ClicksPerSecond" ascii wide
-
-        condition :
-            (1 of($dotnet*)) and (1 of($input*)) and (1 of($click*))
-}
-)");
-
-    AddYaraRule("CHEAT", R"(
-rule CHEAT {
-    strings:
-          $a = "penis.dll" nocase ascii wide
-          $b = "[!] Github: https://github.com/JohnXina-spec" nocase ascii wide 
-          $c = ".vapeclientT" nocase ascii wide 
-          $d = "(JLcn/gov/vape/util/jvmti/ClassLoadHook;)I" nocase ascii wide
-          $e = "net/ccbluex/liquidbounce/UT" nocase ascii wide 
-          $f = "nick/AugustusClassLoader.class" nocase ascii wide 
-          $g = "com/riseclient/Main.class" nocase ascii wide 
-          $h = "slinky_library.dll" nocase ascii wide
-          $i = "assets/minecraft/haru/img/clickgui/PK" nocase ascii wide 
-          $j = "assets/minecraft/sakura/sound/welcome.mp3" nocase ascii wide 
-          $k = "VROOMCLICKER" nocase ascii wide
-          $l = "C:\\Users\\hyeox\\Desktop\\imgui-master\\examples\\example_win32_directx9\\Release\\icetea_dx9_final.pdb" nocase ascii wide
-          $m = "Set autoclicker toggle key (It's can be a mouse button) -> " nocase ascii wide 
-          $n = "www.koid.es" nocase ascii wide 
-          $o = "vape.gg" nocase ascii wide
-          $p = "C:\\Users\\DeathZ\\source\\repos\\StarDLL\\x64\\Release\\MoonDLL.pdb" nocase ascii wide
-          $q = "DopeClicker" nocase ascii wide
-          $r = "C:\\Users\\mella\\source\\repos\\Fox v2\\x64\\Release\\Fox.pdb" nocase ascii wide
-          $s = "Cracked by Kangaroo" nocase ascii wide
-          $t = "Sapphire LITE Clicker" nocase ascii wide
-          $w = "dream-injector" nocase ascii wide
-          $x = "Exodus.codes" nocase ascii wide
-          $y = "slinky.gg" nocase ascii wide
-          $z = "[!] Failed to find Vape jar" nocase ascii wide
-          $aa = "Vape Launcher" nocase ascii wide
-          $ab = "C:\\Users\\PC\\Desktop\\Cleaner-main\\obj\\x64\\Release\\WindowsFormsApp3.pdb" nocase ascii wide
-          $ac = "String Cleaner" nocase ascii wide
-          $ad = "Open Minecraft, then try again." nocase ascii wide
-          $af = "PE Injector" nocase ascii wide
-          $ah = "starlight v1.0" nocase ascii wide
-          $ai = "Striker.exe" nocase ascii wide
-          $aj = "Monolith Lite" nocase ascii wide
-          $ak = "B.fagg0t0" nocase ascii wide
-          $al = "B.fag0" nocase ascii wide
-          $an = "C:\\Users\\Daniel\\Desktop\\client-top\\x64\\Release\\top-external.pdb" nocase ascii wide
-          $ao = "C:\\Users\\Daniel\\Desktop\\client-top\\x64\\Release\\top-internal.pdb" nocase ascii wide
-          $ap = "UNICORN CLIENT" nocase ascii wide
-          $aq = "Adding delay to Minecraft" nocase ascii wide
-          $ar = "rightClickChk.BackgroundImage" nocase ascii wide
-          $as = "UwU Client" nocase ascii wide
-          $at = "lithiumclient.wtf" nocase ascii wide
-          $au = "vape.g" nocase ascii wide
-
-    condition:
-       any of them
-}
-)");
+    AddYaraRule("HIGH_ENTROPY_SECTION",
+        "import \"pe\"\n"
+        "import \"math\"\n"
+        "rule HIGH_ENTROPY_SECTION {\n"
+        "    condition:\n"
+        "        for any section in pe.sections : (\n"
+        "            math.entropy(section.raw_data_offset, section.raw_data_size) > 7.0\n"
+        "        )\n"
+        "}\n"
+    );
 }
 
 int YaraMatchCallback(YR_SCAN_CONTEXT* context, int message, void* message_data, void* user_data) {
